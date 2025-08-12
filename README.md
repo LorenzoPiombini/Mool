@@ -13,4 +13,7 @@ once and the API provides the functions to request and return memory to the big 
 ## Fall back system
 the API ensure to always allocates memory, if there is not enough space in the memory chuck,
 or the user is requesting a bigger memory chunck, then the system fall back 
-to the use of **malloc()** 
+to the use of **malloc()**, and the programmer won't know if the memory is allocated 
+from the original chunck, the system will keep truck of the memory and free accordingly, 
+when the user will call **cancel_memory()** function from the 
+Mool API. 
