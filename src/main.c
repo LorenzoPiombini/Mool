@@ -40,11 +40,6 @@ int main(void)
 	strncpy(string.p,"hey what is up",strlen("hey what is up") + 1);
 
 	printf("%s\n",(char*)string.p);	
-	if(cancel_memory(&string) == -1){
-		printf("create memory failed");	
-		close_prog_memory();
-		return 0;
-	}
 
 	struct Mem number_array;
 	memset(&number_array,0,sizeof (struct Mem));
@@ -63,13 +58,72 @@ int main(void)
 	for(i = 0; i < (number_array.size / (sizeof(int))); i++)
 		printf("integer at index %ld:%d\n",i,*(int*)value_at_index(i,&number_array,INT));
 
-	printf("trying to print out of range, int at index %d:%d.\n",10,*(int*)value_at_index(10,&number_array,INT));
+	int *r = value_at_index(10,&number_array,INT);
+
+	printf("trying to print out of range, int at index %d:%d.\n",10,r == NULL ? -1 : *r);
+
+	/*create an array of 2 doubles*/
+	struct Mem double_array;
+	memset(&double_array,0,sizeof(struct Mem));
+	if(create_memory(&double_array,sizeof(double)*2,DOUBLE) == -1){
+		printf("create memory failed");	
+		close_prog_memory();
+		return 0;
+	}
+
+	/*add values to the array*/
+	double d1 = 23.45, d2 = 12.34;
+	push(&double_array,(void *)&d1,DOUBLE);
+	push(&double_array,(void *)&d2,DOUBLE);
+	for(i = 0; i < (double_array.size / (sizeof(double))); i++)
+		printf("double at index %ld:%.2f\n",i,*(double*)value_at_index(i,&double_array,DOUBLE));
+
+
+	/*allocating memory right after the double array*/
+	int *C = (int*)ask_mem(sizeof(int));
+	
+	
+
+	
+
+	/*expand the array of 2 elements*/
+	if(!(double_array.p = (double*)reask_mem(double_array.p,double_array.size,2*sizeof(double)))){
+		printf("create memory failed");	
+		close_prog_memory();
+		return 0;
+	}
+
+	double_array.size += 2*sizeof(double);
+
+	d1 = 11.89;
+	d2 = 13.80;
+	push(&double_array,(void *)&d1,DOUBLE);
+	push(&double_array,(void *)&d2,DOUBLE);
+	
+
+	for(i = 0; i < (double_array.size / (sizeof(double))); i++)
+		printf("double at index %ld:%.2f\n",i,*(double*)value_at_index(i,&double_array,DOUBLE));
+
+
+	double *res = (double*)value_at_index(10,&double_array,DOUBLE);
+	printf("trying to print out of range, double at index %d:%.2f.\n",10,res == NULL ? -1.00 : *res);
+
+	/* this two calls to cancel_memory are here 
+	 * only because i want to test the behavoiur of  
+	 * reask_mem()
+	 * */
 	if(cancel_memory(&number_array) == -1){
 		printf("create memory failed");	
 		close_prog_memory();
 		return 0;
 	}
-	
+	if(cancel_memory(&string) == -1){
+		printf("create memory failed");	
+		close_prog_memory();
+		return 0;
+	}
+
+
 	printf("\n\n\n====== TESTING FALL BACK SYSTEM ============\n\n");		
 
 	struct Mem big_array;
@@ -77,6 +131,10 @@ int main(void)
 	memset(&big_array,0,sizeof(struct Mem));
 	memset(&big_array2,0,sizeof(struct Mem));
 
+
+
+	
+	
 	if(create_memory(&big_array,MEM_SIZE + 4,INT) == -1){
 		printf("create memory failed");	
 		close_prog_memory();

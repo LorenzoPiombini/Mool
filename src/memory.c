@@ -293,22 +293,22 @@ void *value_at_index(uint64_t index,struct Mem *memory,int type)
 {
 	switch(type){
 	case INT:
-		if((int)((memory->size / sizeof(int)) - (int)index ) <= 0 ) return (void*) &e;
+		if((int)((memory->size / sizeof(int)) - (int)index ) <= 0 ) return NULL;
 		return (void*)((int*)memory->p + index);
 	case STRING:
-		if((int)((memory->size / sizeof(char)) - index ) <= 0 ) return (void*) &e;
+		if((int)((memory->size / sizeof(char)) - index ) <= 0 ) return NULL;
 		return (void*)((char*)memory->p + index);
 	case LONG:
-		if((int)((memory->size / sizeof(long)) - index ) <= 0 ) return (void*) &e;
+		if((int)((memory->size / sizeof(long)) - index ) <= 0 ) return NULL;
 		return (void*)((long*)memory->p + index);
 	case FLOAT:
-		if((int)((memory->size / sizeof(float)) - index ) <= 0 ) return (void*) &e;
+		if((int)((memory->size / sizeof(float)) - index ) <= 0 ) return NULL;
 		return (void*)((float*)memory->p + index);
 	case DOUBLE:
-		if((int)((memory->size / sizeof(double)) - index ) <= 0 ) return (void*) &e;
+		if((int)((memory->size / sizeof(double)) - index ) <= 0 ) return NULL;
 		return (void*)((double*)memory->p + index);
 	default:
-		return (void*)&e;
+		return NULL;
 	}
 }
 
@@ -366,7 +366,6 @@ void *ask_mem(size_t size){
 		/*here we know we have a big enough block*/
 		last_addr = (p + size) - 1;
 		return (void*) p;
-
 	}
 
 	
@@ -403,6 +402,28 @@ fall_back:
 	return p;
 }
 
+void *reask_mem(void *p,size_t old_size,size_t size)
+{
+	if(is_free(&((int8_t*)p)[old_size],size) == -1 || ((last_addr -  prog_mem) > (&((int8_t*)p)[old_size] - prog_mem))){
+		/*look for a new block*/
+		void *new_block = ask_mem(old_size+size);
+		if(!new_block) return NULL;
+
+		/*cpy memory from oldblock to new*/
+		memcpy(new_block,p,old_size);
+		if(return_mem(p,old_size) == -1){
+			return_mem(new_block,old_size+size);
+			return NULL;
+		}
+
+		return new_block;
+	}
+
+	if((last_addr - prog_mem) > (((int8_t*)p + old_size + size) - prog_mem)) return p;
+	
+	last_addr = &prog_mem[(((int8_t*)p + old_size + size)- prog_mem) -1];
+	return p;
+}
 int return_mem(void *start, size_t size){
 	if(!start) return -1;
 	if(((int8_t *)start - prog_mem) < 0) return -1;
