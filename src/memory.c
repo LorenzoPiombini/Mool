@@ -23,6 +23,7 @@ static FILE *log = NULL;
 /*static functions*/
 static int is_free(void *mem, size_t size);
 static int resize_memory_info();
+static int return_mem(void *start, size_t size);
 
 
 
@@ -162,28 +163,54 @@ int create_memory(struct Mem *memory, uint64_t size, int type)
 	return 0;
 }
 
-int cancel_memory(struct Mem *memory){
-	if(!memory) return -1;
-	if(!memory->p) return -1;
-	if(memory_info){
-		uint32_t i;
-		for(i = 0; i < memory_info_size; i++){
-			if(memory_info[i]){
-				if(memory_info[i] == memory->p){
-					free(memory->p);	
-					memory_info[i] = NULL;
-					if(resize_memory_info() == -1) return -1;
+int cancel_memory(struct Mem *memory,void *start,size_t size){
+	if(memory && start) return -1;
+	if(!memory && !start) return -1;
+	if(memory)
+		if(!memory->p && !start) return -1;
 
-					return 0;
-				}	
+	if(size <= 0 && start) return -1;
+
+	if(start){
+		if(memory_info){
+			uint32_t i;
+			for(i = 0; i < memory_info_size; i++){
+				if(memory_info[i]){
+					if(memory_info[i] == start){
+						free(start);	
+						memory_info[i] = NULL;
+						if(resize_memory_info() == -1) return -1;
+
+						return 0;
+					}	
+				}
 			}
-		}
-	}	
+		}	
 
-	if(memory->size == 0 || memory->size >= MEM_SIZE) return -1;
 
-	if(return_mem(memory->p,memory->size) == -1) return -1;
+		if(return_mem(start,size) == -1) return -1;
 
+	}else{
+		if(memory_info){
+			uint32_t i;
+			for(i = 0; i < memory_info_size; i++){
+				if(memory_info[i]){
+					if(memory_info[i] == memory->p){
+						free(memory->p);	
+						memory_info[i] = NULL;
+						if(resize_memory_info() == -1) return -1;
+
+						return 0;
+					}	
+				}
+			}
+		}	
+	
+
+		if(memory->size == 0 || memory->size >= MEM_SIZE) return -1;
+
+		if(return_mem(memory->p,memory->size) == -1) return -1;
+	}
 	/* check if the all block is free
 	 * if its free, we zeroed out the free_memory data
 	 * */
@@ -351,7 +378,6 @@ void *ask_mem(size_t size){
 			if(((last_addr + size) - prog_mem) >= (MEM_SIZE-1)) goto fall_back;
 
 			p = last_addr + 1;
-
 		}else{
 			p = prog_mem;
 		}
@@ -400,6 +426,40 @@ fall_back:
 		memory_info[memory_info_size - 1] = p;
 	}
 	return p;
+}
+
+int expand_memory(struct Mem *memory, size_t size,int type){
+	void *expanded_m = reask_mem(memory->p,memory->size,size);
+	if(!expanded_m) return -1;
+
+	switch(type){
+	case INT:
+		memory->p = (int*)expanded_m;
+		memory->size += size;
+		break;
+	case LONG:
+		memory->p = (long*)expanded_m;
+		memory->size += size;
+		break;
+	case STRING:
+		memory->p = (char*)expanded_m;
+		memory->size += size;
+		break;
+	case DOUBLE:
+		memory->p = (double*)expanded_m;
+		memory->size += size;
+		break;
+	case FLOAT:
+		memory->p = (float*)expanded_m;
+		memory->size += size;
+		break;
+	default:
+		memory->p = expanded_m;
+		memory->size += size;
+		break;
+	}
+
+	return 0;
 }
 
 void *reask_mem(void *p,size_t old_size,size_t size)

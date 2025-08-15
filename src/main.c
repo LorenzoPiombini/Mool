@@ -112,12 +112,12 @@ int main(void)
 	 * only because i want to test the behavoiur of  
 	 * reask_mem()
 	 * */
-	if(cancel_memory(&number_array) == -1){
+	if(cancel_memory(&number_array,NULL,0) == -1){
 		printf("create memory failed");	
 		close_prog_memory();
 		return 0;
 	}
-	if(cancel_memory(&string) == -1){
+	if(cancel_memory(&string,NULL,0) == -1){
 		printf("create memory failed");	
 		close_prog_memory();
 		return 0;
@@ -147,13 +147,13 @@ int main(void)
 		return 0;
 	}
 
-	if(cancel_memory(&big_array) == -1){
+	if(cancel_memory(&big_array,NULL,0) == -1){
 		printf("create memory failed");	
 		close_prog_memory();
 		return 0;
 	}
 
-	if(cancel_memory(&big_array2) == -1){
+	if(cancel_memory(&big_array2,NULL,0) == -1){
 		printf("cancel memory failed");	
 		close_prog_memory();
 		return 0;
@@ -185,13 +185,13 @@ int main(void)
 	
 	strncpy(string.p,"ciao!!",strlen("ciao!!")+1);
 
-	if(cancel_memory(&string_array[0]) == -1){
+	if(cancel_memory(&string_array[0],NULL,0) == -1){
 		printf("cancel memory failed");	
 		close_prog_memory();
 		return 0;
 	}
 
-	if(cancel_memory(&string) == -1){
+	if(cancel_memory(&string,NULL,0) == -1){
 		printf("cancel memory failed");	
 		close_prog_memory();
 		return 0;
