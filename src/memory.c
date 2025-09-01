@@ -464,19 +464,30 @@ int expand_memory(struct Mem *memory, size_t size,int type){
 
 void *reask_mem(void *p,size_t old_size,size_t size)
 {
-	if(is_free(&((int8_t*)p)[old_size],size) == -1 || ((last_addr -  prog_mem) > (&((int8_t*)p)[old_size] - prog_mem))){
-		/*look for a new block*/
-		void *new_block = ask_mem(old_size+size);
-		if(!new_block) return NULL;
-
-		/*cpy memory from oldblock to new*/
-		memcpy(new_block,p,old_size);
-		if(return_mem(p,old_size) == -1){
-			return_mem(new_block,old_size+size);
+	if(size < old_size){
+		/*free the memory that is not needed anymore*/
+		void* p_to_left_mem = (int8_t*)p + size;
+		if(return_mem(p_to_left_mem,old_size - size) == -1){
+			fprintf(_LOG_,"return_mem() failed. %s:%d.\n",__FILE__,__LINE__-1);
 			return NULL;
 		}
+		return p;
+	}
+	if(is_free(&((int8_t*)p)[old_size],size) == -1 || ((last_addr -  prog_mem) > (&((int8_t*)p)[old_size] - prog_mem))){
+		/*look for a new block*/
+		if(size > old_size){
+			void *new_block = ask_mem(size);
+			if(!new_block) return NULL;
 
-		return new_block;
+			/*cpy memory from oldblock to new and free the old*/
+			memcpy(new_block,p,old_size);
+			if(return_mem(p,old_size) == -1){
+				return_mem(new_block,old_size+size);
+				return NULL;
+			}
+
+			return new_block;
+		}
 	}
 
 	if((last_addr - prog_mem) > (((int8_t*)p + old_size + size) - prog_mem)) return p;
@@ -484,6 +495,7 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 	last_addr = &prog_mem[(((int8_t*)p + old_size + size)- prog_mem) -1];
 	return p;
 }
+
 int return_mem(void *start, size_t size){
 	if(!start) return -1;
 	if(((int8_t *)start - prog_mem) < 0) return -1;

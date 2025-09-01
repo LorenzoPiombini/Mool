@@ -29,7 +29,7 @@ library:
 
 
 $(TARGET): $(OBJ)
-	sudo gcc -o $@ $? -llog -fpie -pie -z relro -z now -z noexecstack -fsanitize=address 
+	sudo gcc -o $@ $? -llog -fpie -pie -z relro -z now -z noexecstack #-fsanitize=address 
 
 
 
