@@ -16,7 +16,7 @@ static int8_t mem_safe = 0;
 static int8_t *prog_mem = NULL;
 static int8_t *last_addr = NULL;
 static struct Mem *free_memory = NULL;
-static void **memory_info = NULL;
+static struct Mem **memory_info = NULL;
 static uint32_t memory_info_size = 0;
 static FILE *log = NULL;
 
@@ -405,7 +405,7 @@ fall_back:
 	memset(p,0,size);
 
 	if(memory_info_size == 0){
-		memory_info = malloc(sizeof(void*));
+		memory_info = malloc(sizeof(struct Mem*));
 		if(!memory_info){
 			fprintf(_LOG_,"memory allocation failed, %s:%d.\n",__FILE__,__LINE__-2);
 			return NULL;
@@ -413,6 +413,7 @@ fall_back:
 
 		memset(memory_info,0,sizeof(void*));
 		memory_info[0] = p;
+		memory_info[0] = size;
 		memory_info_size++;
 	}else{
 		uint32_t new_size = memory_info_size + 1;
@@ -424,6 +425,7 @@ fall_back:
 		memory_info_size++;
 		memory_info = n_mi;
 		memory_info[memory_info_size - 1] = p;
+		memory_info[memory_info_size - 1] = size;
 	}
 	return p;
 }
@@ -465,6 +467,15 @@ int expand_memory(struct Mem *memory, size_t size,int type){
 void *reask_mem(void *p,size_t old_size,size_t size)
 {
 	if(size < old_size){
+		if(memory_info){
+			/*you have to check where is the memory from */
+			uint32_t i;
+			for(i = 0; i < memory_info_size; i++){
+				if(memory_info[i].p == p)
+
+			}
+		}
+
 		/*free the memory that is not needed anymore*/
 		void* p_to_left_mem = (int8_t*)p + size;
 		if(return_mem(p_to_left_mem,old_size - size) == -1){
@@ -473,7 +484,32 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 		}
 		return p;
 	}
-	if(is_free(&((int8_t*)p)[old_size],size) == -1 || ((last_addr -  prog_mem) > (&((int8_t*)p)[old_size] - prog_mem))){
+
+	size_t remaining_size = 0;
+	int remain = 0;
+	if(size > old_size){
+		remaining_size = size - old_size;
+		remain = 1;
+	}
+
+	if((((int8_t*)p - prog_mem) + remain ? remaining_size : size ) > MEM_SIZE){
+		/*look for a new block*/
+		if(size > old_size){
+			void *new_block = ask_mem(size);
+			if(!new_block) return NULL;
+
+			/*cpy memory from oldblock to new and free the old*/
+			memcpy(new_block,p,old_size);
+			if(return_mem(p,old_size) == -1){
+				return_mem(new_block,old_size+size);
+				return NULL;
+			}
+
+			return new_block;
+		}
+	}
+
+	if(is_free(&((int8_t*)p)[old_size],remain ? remaining_size : size) == -1 || ((last_addr -  prog_mem) > (&((int8_t*)p)[old_size] - prog_mem))){
 		/*look for a new block*/
 		if(size > old_size){
 			void *new_block = ask_mem(size);
@@ -491,7 +527,7 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 	}
 
 	if((last_addr - prog_mem) > (((int8_t*)p + old_size + size) - prog_mem)) return p;
-	
+
 	last_addr = &prog_mem[(((int8_t*)p + old_size + size)- prog_mem) -1];
 	return p;
 }
@@ -553,7 +589,7 @@ static int resize_memory_info()
 		memory_info = NULL;
 		return 0;
 	}	
-	
+
 	/*move the NULL pointers at the end*/
 	uint32_t i,j;
 	for(i = 0,j = 1; i < memory_info_size;i++,j++){
