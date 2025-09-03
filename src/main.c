@@ -56,7 +56,11 @@ int main(void)
 
 	uint64_t i;
 	for(i = 0; i < (number_array.size / (sizeof(int))); i++)
+#if __APPLE__
+		printf("integer at index %llu:%d\n",i,*(int*)value_at_index(i,&number_array,INT));
+#else
 		printf("integer at index %ld:%d\n",i,*(int*)value_at_index(i,&number_array,INT));
+#endif /*__APPLE__*/
 
 	int *r = value_at_index(10,&number_array,INT);
 
@@ -76,7 +80,12 @@ int main(void)
 	push(&double_array,(void *)&d1,DOUBLE);
 	push(&double_array,(void *)&d2,DOUBLE);
 	for(i = 0; i < (double_array.size / (sizeof(double))); i++)
+#if __APPLE__
+		printf("double at index %llu:%.2f\n",i,*(double*)value_at_index(i,&double_array,DOUBLE));
+#else
 		printf("double at index %ld:%.2f\n",i,*(double*)value_at_index(i,&double_array,DOUBLE));
+#endif /*__APPLE__*/
+
 
 
 	/*allocating memory right after the double array*/
@@ -102,7 +111,12 @@ int main(void)
 	
 
 	for(i = 0; i < (double_array.size / (sizeof(double))); i++)
+#if __APPLE__
+		printf("double at index %llu:%.2f\n",i,*(double*)value_at_index(i,&double_array,DOUBLE));
+#else
 		printf("double at index %ld:%.2f\n",i,*(double*)value_at_index(i,&double_array,DOUBLE));
+#endif /*__APPLE__*/
+
 
 
 	double *res = (double*)value_at_index(10,&double_array,DOUBLE);
