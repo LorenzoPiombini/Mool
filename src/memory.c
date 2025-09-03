@@ -101,7 +101,11 @@ void close_prog_memory()
 		if(memory_info){
 			uint32_t i;
 			for( i = 0; i < memory_info_size; i++){
-				free(memory_info[i]);
+				if(memory_info[i]){
+					if(memory_info[i]->p)
+						free(memory_info[i]->p);
+					free(memory_info[i]);
+				}
 			}
 			free(memory_info);
 		}
@@ -112,12 +116,17 @@ void close_prog_memory()
 		if(memory_info){
 			uint32_t i;
 			for( i = 0; i < memory_info_size; i++){
-				free(memory_info[i]);
+				if(memory_info[i]){
+					if(memory_info[i]->p)
+						free(memory_info[i]->p);
+					free(memory_info[i]);
+				}
+
 			}
 			free(memory_info);
 		}
 	}
-	
+
 	fprintf(_LOG_,"memory pool closed.\n");
 	if(log) fclose(log);
 }
@@ -128,35 +137,35 @@ int create_memory(struct Mem *memory, uint64_t size, int type)
 	if(!memory) return -1;
 
 	switch(type){
-	case INT:
-		if((size % sizeof(int)) != 0) return -1;
-		memory->p = (int*)ask_mem(size);
-		if(!memory->p) return -1;
-		break;
-	case STRING:
-		memory->p = (char*)ask_mem(size);
-		if(!memory->p) return -1;
-		memset(memory->p,06,size);
-		break;
-	case LONG:
-		if((size % sizeof(long)) != 0) return -1;
-		memory->p = (long*)ask_mem(size);
-		if(!memory->p) return -1;
-		break;
-	case DOUBLE:
-		if((size % sizeof(double)) != 0) return -1;
-		memory->p = (double*)ask_mem(size);
-		if(!memory->p) return -1;
-		break;
-	case FLOAT:
-		if((size % sizeof(float)) != 0) return -1;
-		memory->p = (float*)ask_mem(size);
-		if(!memory->p) return -1;
-		break;
-	default:
-		memory->p = ask_mem(size);
-		if(!memory->p) return -1;
-		break;
+		case INT:
+			if((size % sizeof(int)) != 0) return -1;
+			memory->p = (int*)ask_mem(size);
+			if(!memory->p) return -1;
+			break;
+		case STRING:
+			memory->p = (char*)ask_mem(size);
+			if(!memory->p) return -1;
+			memset(memory->p,06,size);
+			break;
+		case LONG:
+			if((size % sizeof(long)) != 0) return -1;
+			memory->p = (long*)ask_mem(size);
+			if(!memory->p) return -1;
+			break;
+		case DOUBLE:
+			if((size % sizeof(double)) != 0) return -1;
+			memory->p = (double*)ask_mem(size);
+			if(!memory->p) return -1;
+			break;
+		case FLOAT:
+			if((size % sizeof(float)) != 0) return -1;
+			memory->p = (float*)ask_mem(size);
+			if(!memory->p) return -1;
+			break;
+		default:
+			memory->p = ask_mem(size);
+			if(!memory->p) return -1;
+			break;
 	}
 	memory->size = size;
 
@@ -176,8 +185,10 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 			uint32_t i;
 			for(i = 0; i < memory_info_size; i++){
 				if(memory_info[i]){
-					if(memory_info[i] == start){
-						free(start);	
+					if(memory_info[i]->p == start){
+						free(memory_info[i]->p);	
+						memory_info[i]->p = NULL;
+						free(memory_info[i]);
 						memory_info[i] = NULL;
 						if(resize_memory_info() == -1) return -1;
 
@@ -195,8 +206,9 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 			uint32_t i;
 			for(i = 0; i < memory_info_size; i++){
 				if(memory_info[i]){
-					if(memory_info[i] == memory->p){
+					if(memory_info[i]->p == memory->p){
 						free(memory->p);	
+						free(memory_info[i]);
 						memory_info[i] = NULL;
 						if(resize_memory_info() == -1) return -1;
 
@@ -411,21 +423,35 @@ fall_back:
 			return NULL;
 		}
 
-		memset(memory_info,0,sizeof(void*));
-		memory_info[0] = p;
-		memory_info[0] = size;
+		memset(memory_info,0,sizeof *memory_info);
+		memory_info[0] = malloc(sizeof **memory_info);
+		if(!memory_info[0]){
+			fprintf(_LOG_,"memory allocation failed, %s:%d.\n",__FILE__,__LINE__-2);
+			return NULL;
+		}
+
+		memset(memory_info[0],0,sizeof **memory_info);
+		memory_info[0]->p = p;
+		memory_info[0]->size = size;
 		memory_info_size++;
 	}else{
 		uint32_t new_size = memory_info_size + 1;
-		void **n_mi = realloc(memory_info,new_size * sizeof *memory_info);
+		struct Mem **n_mi = realloc(memory_info,new_size * sizeof *memory_info);
 		if(!n_mi){
 			fprintf(_LOG_,"memory allocation failed, %s:%d.\n",__FILE__,__LINE__-2);
 			return NULL;
 		}
-		memory_info_size++;
+		memory_info_size = new_size;
 		memory_info = n_mi;
-		memory_info[memory_info_size - 1] = p;
-		memory_info[memory_info_size - 1] = size;
+		memory_info[memory_info_size - 1] = malloc(sizeof **memory_info);
+		if(!memory_info[memory_info_size - 1]){
+			fprintf(_LOG_,"memory allocation failed, %s:%d.\n",__FILE__,__LINE__-2);
+			return NULL;
+		}
+		
+		memset(memory_info[memory_info_size -1],0,sizeof **memory_info);
+		memory_info[memory_info_size - 1]->size = size;
+		memory_info[memory_info_size - 1]->p = p;
 	}
 	return p;
 }
@@ -466,15 +492,24 @@ int expand_memory(struct Mem *memory, size_t size,int type){
 
 void *reask_mem(void *p,size_t old_size,size_t size)
 {
-	if(size < old_size){
-		if(memory_info){
-			/*you have to check where is the memory from */
-			uint32_t i;
-			for(i = 0; i < memory_info_size; i++){
-				if(memory_info[i].p == p)
+	if(memory_info){
+		/*you have to check where is the memory from */
+		uint32_t i;
+		for(i = 0; i < memory_info_size; i++){
+			if(memory_info[i]){
+				if(memory_info[i]->p == p){
+					void *n_mem = realloc(memory_info[i]->p,size);
+					if(!n_mem) return NULL;
 
+					memory_info[i]->size = size;
+					memory_info[i]->p = n_mem;
+					return memory_info[i]->p;
+				}
 			}
 		}
+	}
+
+	if(size < old_size){
 
 		/*free the memory that is not needed anymore*/
 		void* p_to_left_mem = (int8_t*)p + size;
@@ -584,7 +619,11 @@ static int resize_memory_info()
 {
 	if(memory_info_size == 1){
 		memory_info_size = 0;
-		free(*memory_info);
+		if(memory_info[0]){
+			if(memory_info[0]->p)
+				free(memory_info[0]->p);
+			free(memory_info[0]);
+		}
 		free(memory_info);
 		memory_info = NULL;
 		return 0;
@@ -603,12 +642,14 @@ static int resize_memory_info()
 		break;
 	}
 
-	void **n_mi = realloc(memory_info,(--memory_info_size)*sizeof(void*));
+	uint32_t new_size = memory_info_size - 1;
+	struct Mem **n_mi = realloc(memory_info,new_size * sizeof *memory_info);
 	if(!n_mi){
 		fprintf(_LOG_,"resizing memory_info array failed, %s:%d.\n",__FILE__,__LINE__-2);
 		return -1;
 	}
 
 	memory_info = n_mi;
+	memory_info_size = new_size;
 	return 0;
 }
