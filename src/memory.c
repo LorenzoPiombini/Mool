@@ -1,5 +1,9 @@
-#if defined(__linux__)
+#if defined(__linux__) || __APPLE__
 	#include <sys/mman.h>
+#endif
+
+
+#if defined(__linux__)
 	#include <log.h>
 #endif
 
@@ -30,8 +34,11 @@ static int return_mem(void *start, size_t size);
 void init_prog_memory()
 {
 
-#if defined(__linux__)
+#if defined(__linux__) 
 	log = open_log_file();
+#endif
+
+#if defined(__linux__) || __APPLE__
 	prog_mem = (int8_t *)mmap(NULL,sizeof (int8_t) * (MEM_SIZE + PAGE_SIZE), PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
 	if(prog_mem == MAP_FAILED){
 		fprintf(log,"mmap, failed, fallback malloc used.\n");
@@ -89,7 +96,7 @@ void init_prog_memory()
 
 void close_prog_memory()
 {
-#if defined(__linux__)
+#if defined(__linux__) || __APPLE__
 	if(mem_safe){
 		memset(free_memory,0,sizeof (struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
 		if(munmap(prog_mem,MEM_SIZE+(PAGE_SIZE)) == -1){
@@ -110,11 +117,13 @@ void close_prog_memory()
 			}
 			free(memory_info);
 		}
+#if defined(__linux__)
 		fprintf(_LOG_,"memory pool closed.\n");
 		if(log) fclose(log);
+#endif /*__linux__*/
 		return;
 	}
-#endif
+#endif /*__linux__ || __APPLE__*/
 		memset(free_memory,0,sizeof (struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
 		free(prog_mem);
 		free(free_memory);
