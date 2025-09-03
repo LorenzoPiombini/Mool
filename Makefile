@@ -29,12 +29,12 @@ library:
 
 
 $(TARGET): $(OBJ)
-	sudo gcc -o $@ $? -llog -fpie -pie -z relro -z now -z noexecstack
+	sudo gcc -o $@ $? -llog -fpie -pie -z relro -z now -z noexecstack -fsanitize=address
 
 
 
 obj/%.o : src/%.c
-	sudo gcc  -Wall -Wextra -Walloca -Warray-bounds -Wnull-dereference -g3 -c $< -o $@ -Iinclude -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC
+	sudo gcc  -Wall -Wextra -Walloca -Warray-bounds -Wnull-dereference -g3 -c $< -o $@ -Iinclude -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -fsanitize=address
 
 
 install: default library
