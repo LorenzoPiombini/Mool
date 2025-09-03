@@ -3,11 +3,11 @@
 #endif
 
 
+
+#include <stdio.h>
 #if defined(__linux__)
 	#include <log.h>
 #endif
-
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
