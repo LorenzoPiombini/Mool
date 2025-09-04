@@ -24,7 +24,7 @@ enum types{
 int create_memory(struct Mem *memory, uint64_t size, int type);
 int cancel_memory(struct Mem *memory,void *start,size_t size);
 int expand_memory(struct Mem *memory, size_t size,int type);
-void init_prog_memory();
+int init_prog_memory();
 void close_prog_memory();
 int push(struct Mem *memory,void* value,int type);
 void *value_at_index(uint64_t index,struct Mem *memory,int type);

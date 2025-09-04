@@ -31,7 +31,7 @@ static int return_mem(void *start, size_t size);
 
 
 
-void init_prog_memory()
+int init_prog_memory()
 {
 
 #if defined(__linux__) 
@@ -44,9 +44,11 @@ void init_prog_memory()
 		fprintf(log,"mmap, failed, fallback malloc used.\n");
 		prog_mem = NULL;
 		prog_mem = malloc(MEM_SIZE*sizeof(int8_t));
-		if(!prog_mem) 
+		if(!prog_mem){
 			fprintf(_LOG_,"fall back system using malloc failed, %s:%d.\n"
 					,__FILE__,__LINE__-2);
+			return -1;
+		}
 
 		assert(prog_mem != NULL);
 		memset(prog_mem,0,MEM_SIZE * sizeof(int8_t));
@@ -58,7 +60,7 @@ void init_prog_memory()
 
 		assert(free_memory != NULL);
 		memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
-		return;
+		return 0;
 	}
 	/*we insert a page after the memory so we get a SIGSEGV if we overflow*/
 	if(mprotect(prog_mem + MEM_SIZE,PAGE_SIZE,PROT_NONE) == -1){
@@ -66,26 +68,31 @@ void init_prog_memory()
 	}
 
 	free_memory = malloc(sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
-	if(!free_memory) 
+	if(!free_memory){
 		fprintf(_LOG_,"cannot allocate memory for free_memory data, %s:%d.\n"
 				,__FILE__,__LINE__-1);
-
+		return -1;
+	}
 	assert(free_memory != NULL);
 	memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
 	mem_safe = 1;
 #else
 	prog_mem = malloc(MEM_SIZE*sizeof(int8_t));
-	if(!prog_mem) 
+	if(!prog_mem){ 
 		fprintf(_LOG_,"fall back system using malloc failed, %s:%d.\n"
 				,__FILE__,__LINE__-2);
+		return -1;
+	}
 
 	assert(prog_mem != NULL);
 	memset(prog_mem,0,MEM_SIZE * sizeof(int8_t));
 
 	free_memory = malloc(sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
-	if(!free_memory) 
+	if(!free_memory){
 		fprintf(_LOG_,"cannot allocate memory for free_memory data, %s:%d.\n"
 				,__FILE__,__LINE__-1);
+		return -1;
+	}
 
 	assert(free_memory != NULL);
 	memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
