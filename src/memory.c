@@ -99,6 +99,7 @@ int init_prog_memory()
 #endif
 
 	fprintf(_LOG_,"memory pool created.\n");
+	return 0;
 }
 
 void close_prog_memory()
