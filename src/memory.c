@@ -241,6 +241,7 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 
 		if(return_mem(memory->p,memory->size) == -1) return -1;
 	}
+
 	/* check if the all block is free
 	 * if its free, we zeroed out the free_memory data
 	 * */
@@ -397,6 +398,7 @@ void *ask_mem(size_t size){
 				void *found = free_memory[i].p;
 				free_memory[i].p = (int8_t*)free_memory[i].p + size;
 				free_memory[i].size -= size;
+				memset(found,0,sizeof(int8_t)*size);/*should not be neccessery*/
 				return found;
 			}
 		}
