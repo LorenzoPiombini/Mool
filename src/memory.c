@@ -247,6 +247,7 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 	 * */
 	if(is_free(prog_mem,MEM_SIZE-1) == 0){
 		memset(free_memory,0,(PAGE_SIZE / sizeof(struct Mem)));	
+		memset(prog_mem,0,MEM_SIZE);
 		last_addr = NULL;
 	}
 	return 0;
@@ -387,14 +388,12 @@ void *ask_mem(size_t size){
 			if(!free_memory[i].p) continue;
 
 			if(free_memory[i].size == size){
-				/*last_addr = free_memory[i].p + size -1;*/
 				void *found = free_memory[i].p;
 				memset(&free_memory[i],0,sizeof(struct Mem));
 				return found;
 			}
 
 			if(free_memory[i].size > size){
-				/*last_addr = free_memory[i].p + size -1;*/
 				void *found = free_memory[i].p;
 				free_memory[i].p = (int8_t*)free_memory[i].p + size;
 				free_memory[i].size -= size;
@@ -617,6 +616,14 @@ int return_mem(void *start, size_t size){
 
 
 static int is_free(void *mem, size_t size){
+	if(size == MEM_SIZE-1){
+		uint32_t i;
+		for(i = 0;i < MEM_SIZE;i++)
+			if(((int8_t*)prog_mem)[i] != '\000') return -1;
+
+		return 0;
+	}
+
 	char cbuf[size+1];
 	memset(cbuf,0,size+1);
 	memcpy(cbuf,(char*)mem,size);
