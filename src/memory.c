@@ -27,7 +27,6 @@ static FILE *log = NULL;
 /*static functions*/
 static int is_free(void *mem, size_t size);
 static int resize_memory_info();
-static int return_mem(void *start, size_t size);
 
 
 
@@ -246,7 +245,7 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 	 * if its free, we zeroed out the free_memory data
 	 * */
 	if(is_free(prog_mem,MEM_SIZE-1) == 0){
-		memset(free_memory,0,(PAGE_SIZE / sizeof(struct Mem)));	
+		memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));	
 		memset(prog_mem,0,MEM_SIZE);
 		last_addr = NULL;
 	}
