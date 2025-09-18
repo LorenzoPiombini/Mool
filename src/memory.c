@@ -27,6 +27,7 @@ static FILE *log = NULL;
 /*static functions*/
 static int is_free(void *mem, size_t size);
 static int resize_memory_info();
+static int return_mem(void *start,size_t size);
 
 
 
@@ -78,7 +79,7 @@ int init_prog_memory()
 #else
 	prog_mem = malloc(MEM_SIZE*sizeof(int8_t));
 	if(!prog_mem){ 
-		fprintf(_LOG_,"fall back system using malloc failed, %s:%d.\n"
+		fprintf(_LOG_,"initial fall back system using malloc failed, %s:%d.\n"
 				,__FILE__,__LINE__-2);
 		return -1;
 	}
@@ -131,21 +132,21 @@ void close_prog_memory()
 		return;
 	}
 #endif /*__linux__ || __APPLE__*/
-		memset(free_memory,0,sizeof (struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
-		free(prog_mem);
-		free(free_memory);
-		if(memory_info){
-			uint32_t i;
-			for( i = 0; i < memory_info_size; i++){
-				if(memory_info[i]){
-					if(memory_info[i]->p)
-						free(memory_info[i]->p);
-					free(memory_info[i]);
-				}
-
+	memset(free_memory,0,sizeof (struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
+	free(prog_mem);
+	free(free_memory);
+	if(memory_info){
+		uint32_t i;
+		for( i = 0; i < memory_info_size; i++){
+			if(memory_info[i]){
+				if(memory_info[i]->p)
+					free(memory_info[i]->p);
+				free(memory_info[i]);
 			}
-			free(memory_info);
+
 		}
+		free(memory_info);
+	}
 }
 
 
@@ -209,14 +210,16 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 						memory_info[i] = NULL;
 						if(resize_memory_info() == -1) return -1;
 
+						fprintf(_LOG_,"freed %ld bytes from fall back system\n",size);
 						return 0;
 					}	
 				}
 			}
 		}	
 
-
+		
 		if(return_mem(start,size) == -1) return -1;
+		fprintf(_LOG_,"'freed' %ld bytes of memory in the pool\n",size);
 
 	}else{
 		if(memory_info){
@@ -229,6 +232,7 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 						memory_info[i] = NULL;
 						if(resize_memory_info() == -1) return -1;
 
+						fprintf(_LOG_,"freed %ld bytes from fall back system\n",memory->size);
 						return 0;
 					}	
 				}
@@ -239,15 +243,23 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 		if(memory->size == 0 || memory->size >= MEM_SIZE) return -1;
 
 		if(return_mem(memory->p,memory->size) == -1) return -1;
+
+		fprintf(_LOG_,"freed %ld bytes from fall back system\n",memory->size);
 	}
 
-	/* check if the all block is free
-	 * if its free, we zeroed out the free_memory data
+	/* 
+	 * check if the all block is free
+	 * if its free, we zeroed out the free_memory data,
+	 * and the block iself,
+	 * this needs a carlfulw investigation, because it should not 
+	 * be neccessery
 	 * */
+
 	if(is_free(prog_mem,MEM_SIZE-1) == 0){
 		memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));	
 		memset(prog_mem,0,MEM_SIZE);
 		last_addr = NULL;
+		fprintf(_LOG_,"freed all memory\n");
 	}
 	return 0;
 }
@@ -377,6 +389,7 @@ void *ask_mem(size_t size){
 
 	/*we have enough space from the start of the memory block*/
 	if(!last_addr){
+		fprintf(_LOG_,"first allocation of %ld bytes\n",size);
 		/*this is the first allocation*/
 		last_addr = (prog_mem + size) - 1;
 		return (void*) prog_mem;
@@ -387,12 +400,14 @@ void *ask_mem(size_t size){
 			if(!free_memory[i].p) continue;
 
 			if(free_memory[i].size == size){
+				fprintf(_LOG_,"using a free block at positions %ld, of size %ld\n",i,size);
 				void *found = free_memory[i].p;
 				memset(&free_memory[i],0,sizeof(struct Mem));
 				return found;
 			}
 
 			if(free_memory[i].size > size){
+				fprintf(_LOG_,"using a pice of a block at positions %ld, of size %ld\n",i,size);
 				void *found = free_memory[i].p;
 				free_memory[i].p = (int8_t*)free_memory[i].p + size;
 				free_memory[i].size -= size;
@@ -420,6 +435,7 @@ void *ask_mem(size_t size){
 		}
 
 		/*here we know we have a big enough block*/
+		fprintf(_LOG_,"memory allocated at position %ld, for %ld bytes\n",(long)(p - prog_mem),size);
 		last_addr = (p + size) - 1;
 		return (void*) p;
 	}
@@ -515,12 +531,18 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 		uint32_t i;
 		for(i = 0; i < memory_info_size; i++){
 			if(memory_info[i]){
+
 				if(memory_info[i]->p == p){
 					void *n_mem = realloc(memory_info[i]->p,size);
 					if(!n_mem) return NULL;
 
 					memory_info[i]->size = size;
 					memory_info[i]->p = n_mem;
+
+					fprintf(_LOG_,"reask_mem() performed a realloc on the fall_back system,"\
+					      	      "pointer reallocated %p, new size = %ld\n",
+					              (void*)memory_info[i]->p,size);
+
 					return memory_info[i]->p;
 				}
 			}
@@ -528,13 +550,14 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 	}
 
 	if(size < old_size){
-
+		
 		/*free the memory that is not needed anymore*/
 		void* p_to_left_mem = (int8_t*)p + size;
 		if(return_mem(p_to_left_mem,old_size - size) == -1){
 			fprintf(_LOG_,"return_mem() failed. %s:%d.\n",__FILE__,__LINE__-1);
 			return NULL;
 		}
+		fprintf(_LOG_,"memory resized to %ld, from %ld",old_size,size);
 		return p;
 	}
 
@@ -545,7 +568,29 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 		remain = 1;
 	}
 
-	if((((int8_t*)p - prog_mem) + remain ? remaining_size : size ) > MEM_SIZE){
+	if((((int8_t*)p - prog_mem) + (remain == 1 ? remaining_size : size)) > MEM_SIZE){
+		/*look for a new block*/
+		if(size > old_size){
+			void *new_block = ask_mem(size);
+			if(!new_block) return NULL;
+
+			/*cpy memory from oldblock to new and free the old*/
+			memcpy(new_block,p,old_size);
+			if(return_mem(p,old_size) == -1){
+				return_mem(new_block,old_size+size);
+				return NULL;
+			}
+
+			return new_block;
+		}
+		/*TODO add case size < old_size*/
+	}
+
+	/* check if we can expand the memory in place, meaning
+	 * the requested new memory size is avaiabale adjason to the old memory location
+	 * if not we look for another block */
+	if(is_free(&((int8_t*)p)[old_size],(remain == 1 ? remaining_size : size)) == -1 || 
+			((last_addr -  prog_mem) > (&((int8_t*)p)[old_size] - prog_mem))){
 		/*look for a new block*/
 		if(size > old_size){
 			void *new_block = ask_mem(size);
@@ -562,30 +607,16 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 		}
 	}
 
-	if(is_free(&((int8_t*)p)[old_size],remain ? remaining_size : size) == -1 || ((last_addr -  prog_mem) > (&((int8_t*)p)[old_size] - prog_mem))){
-		/*look for a new block*/
-		if(size > old_size){
-			void *new_block = ask_mem(size);
-			if(!new_block) return NULL;
-
-			/*cpy memory from oldblock to new and free the old*/
-			memcpy(new_block,p,old_size);
-			if(return_mem(p,old_size) == -1){
-				return_mem(new_block,old_size+size);
-				return NULL;
-			}
-
-			return new_block;
-		}
+	if((last_addr - prog_mem) > (((int8_t*)p + old_size + size) - prog_mem)){
+		fprintf(_LOG_,"reask_mem expand memory in place from %ld, to %ld",old_size, size);	
+		return p;
 	}
-
-	if((last_addr - prog_mem) > (((int8_t*)p + old_size + size) - prog_mem)) return p;
 
 	last_addr = &prog_mem[(((int8_t*)p + old_size + size)- prog_mem) -1];
 	return p;
 }
 
-int return_mem(void *start, size_t size){
+static int return_mem(void *start, size_t size){
 	if(!start) return -1;
 	if(((int8_t *)start - prog_mem) < 0) return -1;
 	if(((int8_t *)start - prog_mem) > (MEM_SIZE -1)) return -1;

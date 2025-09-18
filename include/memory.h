@@ -29,9 +29,8 @@ void close_prog_memory();
 int push(struct Mem *memory,void* value,int type);
 void *value_at_index(uint64_t index,struct Mem *memory,int type);
 
-/*internal function*/
 void *ask_mem(size_t size);
 void *reask_mem(void *p,size_t old_size,size_t size);
-int return_mem(void *start,size_t size);
+/*internal function*/
 
 #endif
