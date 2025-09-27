@@ -10,6 +10,17 @@ struct Mytype{
 
 int main(void)
 {
+	/*using arena*/
+	
+	if(create_arena(500) == -1) return -1 ;
+	char *help = (char*)ask_mem(100);
+	if(!help) return 0;
+
+	strncpy(help,"when i was younger so much younger than today",strlen("when i wad younger so much younger than today")+1);
+
+	printf("%s\n",help);
+	close_arena();
+
 	init_prog_memory();
 	
 	struct Mem my_type;

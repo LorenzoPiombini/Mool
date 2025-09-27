@@ -17,7 +17,9 @@
 int e = -1; /*returning error*/
 static int8_t mem_safe = 0;
 static int8_t *prog_mem = NULL;
+static struct Mem arena;
 static int8_t *last_addr = NULL;
+static int8_t *last_addr_arena = NULL;
 static struct Mem *free_memory = NULL;
 static struct Mem **memory_info = NULL;
 static uint32_t memory_info_size = 0;
@@ -30,6 +32,38 @@ static int resize_memory_info();
 static int return_mem(void *start,size_t size);
 
 
+int create_arena(size_t size){
+
+#if defined(__linux__) || __APPLE__
+	memset(&arena,0,sizeof(struct Mem));
+	if(!arena.p)
+		arena.p = mmap(NULL,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
+	else
+		return -1;
+	
+
+	if(arena.p == MAP_FAILED) return -1;
+
+#elif defined(_WIN32)
+	/*windows code*/
+#endif
+	arena.size = size;
+	return 0;
+}
+
+int close_arena(){
+#if defined(__linux__) || __APPLE__
+	if(munmap(arena.p,arena.size) == -1){
+		fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
+		if(log) fclose(log);
+		return -1;
+	}
+	memset(&arena,0,sizeof(struct Mem));
+#elif defined(_WIN32)
+	/*windows code*/
+#endif
+	return 0;
+}
 
 int init_prog_memory()
 {
@@ -39,7 +73,10 @@ int init_prog_memory()
 #endif
 
 #if defined(__linux__) || __APPLE__
-	prog_mem = (int8_t *)mmap(NULL,sizeof (int8_t) * (MEM_SIZE + PAGE_SIZE), PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
+	prog_mem = (int8_t *)mmap(NULL,sizeof (int8_t) * (MEM_SIZE + PAGE_SIZE), 
+					PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,
+					-1,0);
+
 	if(prog_mem == MAP_FAILED){
 		fprintf(log,"mmap, failed, fallback malloc used.\n");
 		prog_mem = NULL;
@@ -384,63 +421,106 @@ void *value_at_index(uint64_t index,struct Mem *memory,int type)
 
 void *ask_mem(size_t size){
 	if(size <= 0) return NULL;
-	if(!prog_mem) return NULL;
-	if(size > (MEM_SIZE - 1)) goto fall_back;
+	if(!prog_mem && !arena.p) return NULL;
 
-	/*we have enough space from the start of the memory block*/
-	if(!last_addr){
-		fprintf(_LOG_,"first allocation of %ld bytes\n",size);
-		/*this is the first allocation*/
-		last_addr = (prog_mem + size) - 1;
-		return (void*) prog_mem;
-	}else{
-		/*first check if we have a big enough freed block*/
-		uint64_t i;
-		for(i = 0;i < (PAGE_SIZE / sizeof (struct Mem));i++){
-			if(!free_memory[i].p) continue;
+	if(prog_mem)
+		if(size > (MEM_SIZE - 1)) goto fall_back;
 
-			if(free_memory[i].size == size){
-				fprintf(_LOG_,"using a free block at positions %ld, of size %ld\n",i,size);
-				void *found = free_memory[i].p;
-				memset(&free_memory[i],0,sizeof(struct Mem));
-				return found;
-			}
-
-			if(free_memory[i].size > size){
-				fprintf(_LOG_,"using a pice of a block at positions %ld, of size %ld\n",i,size);
-				void *found = free_memory[i].p;
-				free_memory[i].p = (int8_t*)free_memory[i].p + size;
-				free_memory[i].size -= size;
-				memset(found,0,sizeof(int8_t)*size);/*should not be neccessery*/
-				return found;
-			}
+	if(arena.p){
+		if((arena.size-1) < size) { 
+			/*here you may want to expand the memory*/
+			return NULL;
 		}
-
-		/*look for space in the memory block*/
-		int8_t *p = NULL;
-		if(last_addr){
-			if((last_addr - prog_mem) >= (MEM_SIZE-1)) goto fall_back;
-			if(((last_addr + size) - prog_mem) >= (MEM_SIZE-1)) goto fall_back;
-
-			p = last_addr + 1;
-		}else{
-			p = prog_mem;
-		}
-
-		while(is_free((void*)p,size) == -1) {
-			if(((p + size) - prog_mem) > (MEM_SIZE -1)) {
-				goto fall_back;
-			}
-			p += size;
-		}
-
-		/*here we know we have a big enough block*/
-		fprintf(_LOG_,"memory allocated at position %ld, for %ld bytes\n",(long)(p - prog_mem),size);
-		last_addr = (p + size) - 1;
-		return (void*) p;
 	}
 
-	
+	/*we have enough space from the start of the memory block*/
+	if(prog_mem){
+		if(!last_addr){
+			fprintf(_LOG_,"first allocation of %ld bytes\n",size);
+			/*this is the first allocation*/
+			last_addr = (prog_mem + size) - 1;
+			return (void*) prog_mem;
+		}else{
+			/*first check if we have a big enough freed block*/
+			uint64_t i;
+			for(i = 0;i < (PAGE_SIZE / sizeof (struct Mem));i++){
+				if(!free_memory[i].p) continue;
+
+				if(free_memory[i].size == size){
+					fprintf(_LOG_,"using a free block at positions %ld, of size %ld\n",i,size);
+					void *found = free_memory[i].p;
+					memset(&free_memory[i],0,sizeof(struct Mem));
+					return found;
+				}
+
+				if(free_memory[i].size > size){
+					fprintf(_LOG_,"using a pice of a block at positions %ld, of size %ld\n",i,size);
+					void *found = free_memory[i].p;
+					free_memory[i].p = (int8_t*)free_memory[i].p + size;
+					free_memory[i].size -= size;
+					memset(found,0,sizeof(int8_t)*size);/*should not be neccessery*/
+					return found;
+				}
+			}
+
+			/*look for space in the memory block*/
+			int8_t *p = NULL;
+			if(last_addr){
+				if((last_addr - prog_mem) >= (MEM_SIZE-1)) goto fall_back;
+				if(((last_addr + size) - prog_mem) >= (MEM_SIZE-1)) goto fall_back;
+
+				p = last_addr + 1;
+			}else{
+				p = prog_mem;
+			}
+
+			while(is_free((void*)p,size) == -1) {
+				if(((p + size) - prog_mem) > (MEM_SIZE -1)) {
+					goto fall_back;
+				}
+				p += size;
+			}
+
+			/*here we know we have a big enough block*/
+			fprintf(_LOG_,"memory allocated at position %ld, for %ld bytes\n",(long)(p - prog_mem),size);
+			last_addr = (p + size) - 1;
+			return (void*) p;
+		}
+	}
+
+	if(arena.p){
+		if(!last_addr_arena){
+			fprintf(_LOG_,"first allocation of %ld bytes\n",size);
+			/*this is the first allocation*/
+			last_addr_arena = (arena.p + size) - 1;
+			return (void*) arena.p;
+		}else{
+			/*look for space in the memory block*/
+			int8_t *p = NULL;
+			if(last_addr_arena){
+				if((uint64_t)(last_addr_arena - (int8_t*)arena.p) >= (arena.size - 1)) return NULL;
+				if((uint64_t)((last_addr_arena + size) - (int8_t*)arena.p) >= (arena.size - 1)) return NULL;
+
+				p = last_addr_arena + 1;
+			}else{
+				p = arena.p;
+			}
+
+			while(is_free((void*)p,size) == -1) {
+				if((uint64_t)((p + size) - (int8_t*)arena.p) > (arena.size -1)) {
+					return NULL;
+				}
+				p += size;
+			}
+
+			/*here we know we have a big enough block*/
+			fprintf(_LOG_,"memory allocated at position %ld, for %ld bytes, in the arena.\n",(long)(p - (int8_t*)arena.p),size);
+			last_addr_arena = (p + size) - 1;
+			return (void*) p;
+		}
+	}
+
+
 fall_back:
 	fprintf(_LOG_,"using fall back system.\n");
 	void *p = malloc(size);
@@ -482,7 +562,7 @@ fall_back:
 			fprintf(_LOG_,"memory allocation failed, %s:%d.\n",__FILE__,__LINE__-2);
 			return NULL;
 		}
-		
+
 		memset(memory_info[memory_info_size -1],0,sizeof **memory_info);
 		memory_info[memory_info_size - 1]->size = size;
 		memory_info[memory_info_size - 1]->p = p;
@@ -495,30 +575,30 @@ int expand_memory(struct Mem *memory, size_t size,int type){
 	if(!expanded_m) return -1;
 
 	switch(type){
-	case INT:
-		memory->p = (int*)expanded_m;
-		memory->size += size;
-		break;
-	case LONG:
-		memory->p = (long*)expanded_m;
-		memory->size += size;
-		break;
-	case STRING:
-		memory->p = (char*)expanded_m;
-		memory->size += size;
-		break;
-	case DOUBLE:
-		memory->p = (double*)expanded_m;
-		memory->size += size;
-		break;
-	case FLOAT:
-		memory->p = (float*)expanded_m;
-		memory->size += size;
-		break;
-	default:
-		memory->p = expanded_m;
-		memory->size += size;
-		break;
+		case INT:
+			memory->p = (int*)expanded_m;
+			memory->size += size;
+			break;
+		case LONG:
+			memory->p = (long*)expanded_m;
+			memory->size += size;
+			break;
+		case STRING:
+			memory->p = (char*)expanded_m;
+			memory->size += size;
+			break;
+		case DOUBLE:
+			memory->p = (double*)expanded_m;
+			memory->size += size;
+			break;
+		case FLOAT:
+			memory->p = (float*)expanded_m;
+			memory->size += size;
+			break;
+		default:
+			memory->p = expanded_m;
+			memory->size += size;
+			break;
 	}
 
 	return 0;
@@ -540,8 +620,8 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 					memory_info[i]->p = n_mem;
 
 					fprintf(_LOG_,"reask_mem() performed a realloc on the fall_back system,"\
-					      	      "pointer reallocated %p, new size = %ld\n",
-					              (void*)memory_info[i]->p,size);
+							"pointer reallocated %p, new size = %ld\n",
+							(void*)memory_info[i]->p,size);
 
 					return memory_info[i]->p;
 				}
@@ -550,7 +630,7 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 	}
 
 	if(size < old_size){
-		
+
 		/*free the memory that is not needed anymore*/
 		void* p_to_left_mem = (int8_t*)p + size;
 		if(return_mem(p_to_left_mem,old_size - size) == -1){
