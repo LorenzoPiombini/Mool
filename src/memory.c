@@ -33,14 +33,16 @@ static int return_mem(void *start,size_t size);
 
 
 int create_arena(size_t size){
+#if defined(__linux__)
+	log = open_log_file();
+#endif
 
-#if defined(__linux__) || __APPLE__
+#if defined(__linux__) || defined(__APPLE__)
 	memset(&arena,0,sizeof(struct Mem));
 	if(!arena.p)
 		arena.p = mmap(NULL,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
 	else
 		return -1;
-	
 
 	if(arena.p == MAP_FAILED) return -1;
 
@@ -59,9 +61,15 @@ int close_arena(){
 		return -1;
 	}
 	memset(&arena,0,sizeof(struct Mem));
+	last_addr_arena = NULL;
 #elif defined(_WIN32)
 	/*windows code*/
 #endif
+
+#if defined(__linux__)
+		fprintf(_LOG_,"memory arena closed.\n");
+		if(log) fclose(log);
+#endif /*__linux__*/
 	return 0;
 }
 

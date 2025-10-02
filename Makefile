@@ -29,16 +29,16 @@ library:
 
 
 $(TARGET): $(OBJ)
-	sudo gcc -o $@ $? -llog -fpie -pie -z relro -z now -z noexecstack -fsanitize=address
+	gcc -o $@ $? -llog -fpie -pie -z relro -z now -z noexecstack -fsanitize=address
 
 
 
 obj/%.o : src/%.c
-	sudo gcc  -Wall -Wextra -Walloca -Warray-bounds -Wnull-dereference -g3 -c $< -o $@ -Iinclude -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -fsanitize=address
+	gcc  -Wall -Wextra -Walloca -Warray-bounds -Wnull-dereference -g3 -c $< -o $@ -Iinclude -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -fsanitize=address
 
 
 install: default library
-	install -d $(INCLUDEDIR)
-	install -m 644 include/memory.h $(INCLUDEDIR)/
-	install -m 755 $(SHAREDLIBmem) $(LIBDIR)
-	ldconfig
+	sudo install -d $(INCLUDEDIR)
+	sudo install -m 644 include/memory.h $(INCLUDEDIR)/
+	sudo install -m 755 $(SHAREDLIBmem) $(LIBDIR)
+	sudo ldconfig

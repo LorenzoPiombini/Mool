@@ -5,6 +5,8 @@
 
 #define PAGE_SIZE 4096
 #define MEM_SIZE (PAGE_SIZE*1000) /* 4 Mib */
+#define ONE_Mib (1024 * 1000)
+#define FIVE_H_Kib (1024 * 500)
 
 struct Mem{
 	void *p;
