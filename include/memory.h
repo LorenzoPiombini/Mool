@@ -2,11 +2,15 @@
 #define _MEMORY_H
 
 #include <stdint.h>
+#include <unistd.h>
 
 #define PAGE_SIZE 4096
 #define MEM_SIZE (PAGE_SIZE*1000) /* 4 Mib */
 #define ONE_Mib (1024 * 1000)
 #define FIVE_H_Kib (1024 * 500)
+#define EIGTH_Kib (1024 * 8)
+#define SMEM_EXIST 2
+#define SMEM_NOENT 3
 
 struct Mem{
 	void *p;
@@ -23,6 +27,10 @@ enum types{
 };
 
 /* API endpoints */
+int create_shared_memory(size_t size);
+int read_from_shared_memory();
+int write_to_shared_memory(pid_t pid, void* value);
+void close_shared_memory();
 int create_memory(struct Mem *memory, uint64_t size, int type);
 int cancel_memory(struct Mem *memory,void *start,size_t size);
 int expand_memory(struct Mem *memory, size_t size,int type);

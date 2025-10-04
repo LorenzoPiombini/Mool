@@ -1,13 +1,15 @@
 #if defined(__linux__) || __APPLE__
+	#include <unistd.h>
 	#include <sys/mman.h>
 #endif
 
 
-
 #include <stdio.h>
+
 #if defined(__linux__)
 	#include <log.h>
 #endif
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -18,8 +20,10 @@ int e = -1; /*returning error*/
 static int8_t mem_safe = 0;
 static int8_t *prog_mem = NULL;
 static struct Mem arena;
+static pid_t proc = -1;
 static int8_t *last_addr = NULL;
 static int8_t *last_addr_arena = NULL;
+static struct Mem shared_memory;
 static struct Mem *free_memory = NULL;
 static struct Mem **memory_info = NULL;
 static uint32_t memory_info_size = 0;
@@ -32,9 +36,64 @@ static int resize_memory_info();
 static int return_mem(void *start,size_t size);
 
 
+int create_shared_memory(size_t size)
+{
+	log = open_log_file("log_shared_mem");
+	memset(&shared_memory,0,sizeof(struct Mem));
+	if(!shared_memory.p){
+#if defined(__linux__)  || defined(__APPLE__)
+		if((shared_memory.p = mmap(NULL,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0)) == (void*)-1){
+			fprintf(_LOG_,"cannot open shared memory\n");
+			return -1;
+		}
+#elif defined(_WIN32)
+		/*windows code*/
+#endif
+		shared_memory.size = (uint64_t)size;
+		return 0;
+	}
+	return SMEM_EXIST;	
+}
+
+int read_from_shared_memory()
+{
+	if(!shared_memory.p) return SMEM_NOENT;
+
+	if(*(int8_t*)shared_memory.p == 0) 
+		return 0;
+	else
+		return -1;
+}
+
+int write_to_shared_memory(pid_t pid, void* value)
+{
+	if(!shared_memory.p) return SMEM_NOENT;
+
+	if(proc == -1){
+		/*write to memory*/
+		proc = pid;
+		memcpy(shared_memory.p,value,sizeof(uint8_t));
+		return 0;
+	}else if( proc == pid){
+		memcpy(shared_memory.p,value,sizeof(uint8_t));
+		if(*(uint8_t*)value == 0) proc = -1;
+		return 0;
+	}
+
+	return -1;
+}
+void close_shared_memory()
+{
+	if(munmap(shared_memory.p,shared_memory.size) == -1) {
+		fprintf(_LOG_,"shared_memory closed failed\n");
+		return;
+	}
+	shared_memory.p = NULL;
+	shared_memory.size = 0;
+}
 int create_arena(size_t size){
 #if defined(__linux__)
-	log = open_log_file();
+	log = open_log_file("log_memory_areana");
 #endif
 
 #if defined(__linux__) || defined(__APPLE__)
@@ -77,7 +136,7 @@ int init_prog_memory()
 {
 
 #if defined(__linux__) 
-	log = open_log_file();
+	log = open_log_file("log_mem");
 #endif
 
 #if defined(__linux__) || __APPLE__
@@ -151,29 +210,34 @@ void close_prog_memory()
 {
 #if defined(__linux__) || __APPLE__
 	if(mem_safe){
-		memset(free_memory,0,sizeof (struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
-		if(munmap(prog_mem,MEM_SIZE+(PAGE_SIZE)) == -1){
-			fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
-			if(log) fclose(log);
-			return;
-		}
-
-		free(free_memory);
-		if(memory_info){
-			uint32_t i;
-			for( i = 0; i < memory_info_size; i++){
-				if(memory_info[i]){
-					if(memory_info[i]->p)
-						free(memory_info[i]->p);
-					free(memory_info[i]);
-				}
+		if(prog_mem){
+			memset(free_memory,0,sizeof (struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
+			if(munmap(prog_mem,MEM_SIZE+(PAGE_SIZE)) == -1){
+				fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
+				if(log) fclose(log);
+				return;
 			}
-			free(memory_info);
-		}
+
+			free(free_memory);
+			if(memory_info){
+				uint32_t i;
+				for( i = 0; i < memory_info_size; i++){
+					if(memory_info[i]){
+						if(memory_info[i]->p)
+							free(memory_info[i]->p);
+						free(memory_info[i]);
+					}
+				}
+				free(memory_info);
+			}
 #if defined(__linux__)
-		fprintf(_LOG_,"memory pool closed.\n");
-		if(log) fclose(log);
+			fprintf(_LOG_,"memory pool closed.\n");
+			if(log) fclose(log);
+
 #endif /*__linux__*/
+		return;
+		}
+	}else{
 		return;
 	}
 #endif /*__linux__ || __APPLE__*/
@@ -262,7 +326,7 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 			}
 		}	
 
-		
+
 		if(return_mem(start,size) == -1) return -1;
 		fprintf(_LOG_,"'freed' %ld bytes of memory in the pool\n",size);
 
@@ -283,7 +347,7 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 				}
 			}
 		}	
-	
+
 
 		if(memory->size == 0 || memory->size >= MEM_SIZE) return -1;
 
@@ -310,120 +374,120 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 }
 
 int push(struct Mem *memory,void* value,int type){
-	
+
 	switch(type){
-	case INT:
-		if(is_free((void*)memory->p,memory->size) == -1){
-			if((memory->size / sizeof(int)) > 1){
-				/*find the first empty memory slot*/
-				uint64_t i;
-				for(i = 0; i < (memory->size / sizeof(int));i++){
-					if(*(int*)memory->p == 0) break;
-						
-					memory->p = (int*)memory->p + 1;
-				}	
-				memcpy(memory->p,value,sizeof(int));
-				memory->p= (int*)memory->p - i;	
-				break;
+		case INT:
+			if(is_free((void*)memory->p,memory->size) == -1){
+				if((memory->size / sizeof(int)) > 1){
+					/*find the first empty memory slot*/
+					uint64_t i;
+					for(i = 0; i < (memory->size / sizeof(int));i++){
+						if(*(int*)memory->p == 0) break;
+
+						memory->p = (int*)memory->p + 1;
+					}	
+					memcpy(memory->p,value,sizeof(int));
+					memory->p= (int*)memory->p - i;	
+					break;
+				}
 			}
-		}
-		memcpy(memory->p,value,sizeof(int));
-		break;
-	case STRING:
-		if(is_free((void*)memory->p,memory->size) == -1){
-			if((memory->size / sizeof(char)) > 1){
-				/*find the first empty memory slot*/
-				uint64_t i;
-				for(i = 0; i < (memory->size / sizeof(char));i++){
-					if(*(char*)memory->p == '\0') break;
-						
-					memory->p = (char*)memory->p + 1;
-				}	
-				memcpy(memory->p,value,sizeof(char));
-				memory->p= (char*)memory->p - i;	
-				break;
+			memcpy(memory->p,value,sizeof(int));
+			break;
+		case STRING:
+			if(is_free((void*)memory->p,memory->size) == -1){
+				if((memory->size / sizeof(char)) > 1){
+					/*find the first empty memory slot*/
+					uint64_t i;
+					for(i = 0; i < (memory->size / sizeof(char));i++){
+						if(*(char*)memory->p == '\0') break;
+
+						memory->p = (char*)memory->p + 1;
+					}	
+					memcpy(memory->p,value,sizeof(char));
+					memory->p= (char*)memory->p - i;	
+					break;
+				}
 			}
-		}
-		memcpy(memory->p,value,sizeof(char));
-		break;
-	case LONG:
-		if(is_free((void*)memory->p,memory->size) == -1){
-			if((memory->size / sizeof(long)) > 1){
-				/*find the first empty memory slot*/
-				uint64_t i;
-				for(i = 0; i < (memory->size / sizeof(char));i++){
-					if(*(long*)memory->p == 0) break;
-						
-					memory->p = (long*)memory->p + 1;
-				}	
-				memcpy(memory->p,value,sizeof(long));
-				memory->p= (long*)memory->p - i;	
-				break;
+			memcpy(memory->p,value,sizeof(char));
+			break;
+		case LONG:
+			if(is_free((void*)memory->p,memory->size) == -1){
+				if((memory->size / sizeof(long)) > 1){
+					/*find the first empty memory slot*/
+					uint64_t i;
+					for(i = 0; i < (memory->size / sizeof(char));i++){
+						if(*(long*)memory->p == 0) break;
+
+						memory->p = (long*)memory->p + 1;
+					}	
+					memcpy(memory->p,value,sizeof(long));
+					memory->p= (long*)memory->p - i;	
+					break;
+				}
 			}
-		}
-		memcpy(memory->p,value,sizeof(long));
-		break;
-	case DOUBLE:
-		if(is_free((void*)memory->p,memory->size) == -1){
-			if((memory->size / sizeof(double)) > 1){
-				/*find the first empty memory slot*/
-				uint64_t i;
-				for(i = 0; i < (memory->size / sizeof(char));i++){
-					if(*(double*)memory->p == 0.00) break;
-						
-					memory->p = (double*)memory->p + 1;
-				}	
-				memcpy(memory->p,value,sizeof(double));
-				memory->p= (double*)memory->p - i;	
-				break;
+			memcpy(memory->p,value,sizeof(long));
+			break;
+		case DOUBLE:
+			if(is_free((void*)memory->p,memory->size) == -1){
+				if((memory->size / sizeof(double)) > 1){
+					/*find the first empty memory slot*/
+					uint64_t i;
+					for(i = 0; i < (memory->size / sizeof(char));i++){
+						if(*(double*)memory->p == 0.00) break;
+
+						memory->p = (double*)memory->p + 1;
+					}	
+					memcpy(memory->p,value,sizeof(double));
+					memory->p= (double*)memory->p - i;	
+					break;
+				}
 			}
-		}
-		memcpy(memory->p,value,sizeof(double));
-		break;
-	case FLOAT:
-		if(is_free((void*)memory->p,memory->size) == -1){
-			if((memory->size / sizeof(double)) > 1){
-				/*find the first empty memory slot*/
-				uint64_t i;
-				for(i = 0; i < (memory->size / sizeof(char));i++){
-					if(*(double*)memory->p == 0.00) break;
-						
-					memory->p = (double*)memory->p + 1;
-				}	
-				memcpy(memory->p,value,sizeof(double));
-				memory->p= (double*)memory->p - i;	
-				break;
+			memcpy(memory->p,value,sizeof(double));
+			break;
+		case FLOAT:
+			if(is_free((void*)memory->p,memory->size) == -1){
+				if((memory->size / sizeof(double)) > 1){
+					/*find the first empty memory slot*/
+					uint64_t i;
+					for(i = 0; i < (memory->size / sizeof(char));i++){
+						if(*(double*)memory->p == 0.00) break;
+
+						memory->p = (double*)memory->p + 1;
+					}	
+					memcpy(memory->p,value,sizeof(double));
+					memory->p= (double*)memory->p - i;	
+					break;
+				}
 			}
-		}
-		memcpy(memory->p,value,sizeof(double));
-		break;
-	default:
-		return -1;
+			memcpy(memory->p,value,sizeof(double));
+			break;
+		default:
+			return -1;
 	}
 
 	return 0;
 }
-	
+
 void *value_at_index(uint64_t index,struct Mem *memory,int type)
 {
 	switch(type){
-	case INT:
-		if((int)((memory->size / sizeof(int)) - (int)index ) <= 0 ) return NULL;
-		return (void*)((int*)memory->p + index);
-	case STRING:
-		if((int)((memory->size / sizeof(char)) - index ) <= 0 ) return NULL;
-		return (void*)((char*)memory->p + index);
-	case LONG:
-		if((int)((memory->size / sizeof(long)) - index ) <= 0 ) return NULL;
-		return (void*)((long*)memory->p + index);
-	case FLOAT:
-		if((int)((memory->size / sizeof(float)) - index ) <= 0 ) return NULL;
-		return (void*)((float*)memory->p + index);
-	case DOUBLE:
-		if((int)((memory->size / sizeof(double)) - index ) <= 0 ) return NULL;
-		return (void*)((double*)memory->p + index);
-	default:
-		return NULL;
+		case INT:
+			if((int)((memory->size / sizeof(int)) - (int)index ) <= 0 ) return NULL;
+			return (void*)((int*)memory->p + index);
+		case STRING:
+			if((int)((memory->size / sizeof(char)) - index ) <= 0 ) return NULL;
+			return (void*)((char*)memory->p + index);
+		case LONG:
+			if((int)((memory->size / sizeof(long)) - index ) <= 0 ) return NULL;
+			return (void*)((long*)memory->p + index);
+		case FLOAT:
+			if((int)((memory->size / sizeof(float)) - index ) <= 0 ) return NULL;
+			return (void*)((float*)memory->p + index);
+		case DOUBLE:
+			if((int)((memory->size / sizeof(double)) - index ) <= 0 ) return NULL;
+			return (void*)((double*)memory->p + index);
+		default:
+			return NULL;
 	}
 }
 
