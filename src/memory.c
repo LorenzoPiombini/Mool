@@ -299,6 +299,27 @@ int create_memory(struct Mem *memory, uint64_t size, int type)
 	return 0;
 }
 
+void clear_memory(){
+	if(!prog_mem) return;	
+
+	memset(prog_mem,0,MEM_SIZE);
+	if(free_memory)
+		memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
+
+	last_addr = NULL;
+	if(memory_info){
+		uint32_t i;
+		for(i = 0; i < memory_info_size; i++){
+			if(memory_info[i]){
+				free(memory_info[i]->p);	
+				memory_info[i]->p = NULL;
+				free(memory_info[i]);
+				memory_info[i] = NULL;
+				if(resize_memory_info() == -1) return;
+			}
+		}
+	}
+}
 int cancel_memory(struct Mem *memory,void *start,size_t size){
 	if(memory && start) return -1;
 	if(!memory && !start) return -1;

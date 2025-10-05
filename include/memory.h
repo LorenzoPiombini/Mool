@@ -27,6 +27,7 @@ enum types{
 };
 
 /* API endpoints */
+void clear_memory();
 int create_shared_memory(size_t size);
 int read_from_shared_memory();
 int write_to_shared_memory(pid_t pid, void* value);
