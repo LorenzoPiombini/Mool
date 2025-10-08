@@ -97,18 +97,38 @@ int create_arena(size_t size){
 #endif
 
 #if defined(__linux__) || defined(__APPLE__)
-	memset(&arena,0,sizeof(struct Mem));
-	if(!arena.p)
-		arena.p = mmap(NULL,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
-	else
-		return -1;
+	if(!prog_mem){
+		memset(&arena,0,sizeof(struct Mem));
+		if(!arena.p)
+			arena.p = mmap(NULL,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
+		else
+			return -1;
 
-	if(arena.p == MAP_FAILED) return -1;
+		arena.size = size;
+		if(arena.p == MAP_FAILED) return -1;
+	}else{
+		if(last_addr){
+			if(((uint64_t)((last_addr + size) - prog_mem)) < MEM_SIZE -1 ){
+				if(is_free(last_addr + 1,size) == 0){
+					arena.p = (void*)(last_addr + 1);
+					arena.size = size;
+					last_addr += (last_addr + size) - 1
+					return 0;
+				}
+			}
+		}
+		memset(&arena,0,sizeof(struct Mem));
+		if(!arena.p)
+			arena.p = mmap(NULL,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
+		else
+			return -1;
+
+		if(arena.p == MAP_FAILED) return -1;
+	}
 
 #elif defined(_WIN32)
 	/*windows code*/
 #endif
-	arena.size = size;
 	return 0;
 }
 
@@ -166,13 +186,17 @@ int init_prog_memory()
 		memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
 		return 0;
 	}
+
 	/*we insert a page after the memory so we get a SIGSEGV if we overflow*/
 	if(mprotect(prog_mem + MEM_SIZE,PAGE_SIZE,PROT_NONE) == -1){
 		fprintf(_LOG_,"memory protection failed.\n");
 	}
 
-	free_memory = malloc(sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
-	if(!free_memory){
+	free_memory = mmap(NULL,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)),
+					PROT_READ | PROT_WRITE,
+					MAP_SHARED | MAP_ANONYMOUS,
+					-1,0);
+	if(free_memory == MAP_FAILED){
 		fprintf(_LOG_,"cannot allocate memory for free_memory data, %s:%d.\n"
 				,__FILE__,__LINE__-1);
 		return -1;
@@ -206,6 +230,20 @@ int init_prog_memory()
 	return 0;
 }
 
+
+void *get_arena(size_t size)
+{
+	if(prog_mem){
+		if(last_addr){
+			if(((last_addr + size ) - prog_mem) < (MEM_SIZE -1)) return (void*) last_addr + 1;
+		}
+	}
+
+}
+int is_inside_arena(size_t size,struct arena a)
+{
+	return a.bwritten + size < a.size;
+}
 void close_prog_memory()
 {
 #if defined(__linux__) || __APPLE__

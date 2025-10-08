@@ -17,6 +17,11 @@ struct Mem{
 	uint64_t size;
 };/*16 bytes*/
 
+struct arena{
+	void *p;
+	uint64_t size;
+	uint64_t bwritten;
+};
 
 enum types{
 	INT,
@@ -27,6 +32,8 @@ enum types{
 };
 
 /* API endpoints */
+void *get_arena(size_t size);
+int is_inside_arena(size_t size,struct arena a)
 void clear_memory();
 int create_shared_memory(size_t size);
 int read_from_shared_memory();
