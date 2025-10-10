@@ -13,18 +13,18 @@ int main(void)
 	/*using arena*/
 	
 	if(create_arena(500) == -1) return -1 ;
-	struct arena a;
-	a.p = get_arena();
-	a.size = 500;
-	a.bwritten = 0;
+	struct arena ar;
+	ar.p = get_arena();
+	ar.size = 500;
+	ar.bwritten = 0;
 	
-	if(!arena.p) return -1;
+	if(!ar.p) return -1;
 	
-	char *help = (char*) arena.p[arena.bwritten];
+	char *help = (char*) &(((char*)ar.p)[ar.bwritten]);
 
 	strncpy(help,"when i was younger so much younger than today",strlen("when i wad younger so much younger than today")+1);
 
-	a.bwritten = strlen("when i was younger so much younger than today");
+	ar.bwritten = strlen("when i was younger so much younger than today");
 	
 	printf("%s\n",help);
 	close_arena();

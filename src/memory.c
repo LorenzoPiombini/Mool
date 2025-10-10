@@ -109,14 +109,14 @@ int create_arena(size_t size){
 	}else{
 		if(last_addr){
 			if(((uint64_t)((last_addr + size) - prog_mem)) < MEM_SIZE -1 ){
-				int8_t *p = last_addr + 1
+				int8_t *p = last_addr + 1;
 				while(is_free((void*)p,size) == -1){
 					if(((p + size) - prog_mem) >= (MEM_SIZE -1)) return -1; 
 					p = p + size;
 				}
 					arena.p = (void*)(last_addr + 1);
 					arena.size = size;
-					last_addr += (last_addr + size) - 1
+					last_addr = (last_addr + size) - 1;
 					return 0;
 			}
 			return -1;
@@ -136,7 +136,7 @@ int create_arena(size_t size){
 int close_arena(){
 #if defined(__linux__) || __APPLE__
 	if(prog_mem){
-		last_addr = ((int8_t)arena.p - 1);
+		last_addr = ((int8_t*)arena.p - 1);
 		memset(arena.p,0,arena.size);
 		memset(&arena,0,sizeof(struct Mem));
 		return 0;
@@ -239,14 +239,15 @@ int init_prog_memory()
 }
 
 
-void *get_arena(size_t size)
+void *get_arena(size_t *size)
 {
-	if(prog_mem){
+	if(prog_mem && size){
 		if(last_addr){
-			if(((last_addr + size ) - prog_mem) < (MEM_SIZE -1)) return (void*) last_addr + 1;
+			if(((last_addr + *size ) - prog_mem) < (MEM_SIZE -1)) return (void*) last_addr + 1;
 		}
 		return arena.p;
 	}
+
 	if(arena.p) return arena.p;
 	
 	return NULL;

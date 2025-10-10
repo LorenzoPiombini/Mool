@@ -32,8 +32,8 @@ enum types{
 };
 
 /* API endpoints */
-void *get_arena(size_t size);
-int is_inside_arena(size_t size,struct arena a)
+void *get_arena(size_t *size);
+int is_inside_arena(size_t size,struct arena a);
 void clear_memory();
 int create_shared_memory(size_t size);
 int read_from_shared_memory();
