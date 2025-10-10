@@ -98,14 +98,17 @@ int create_arena(size_t size){
 
 #if defined(__linux__) || defined(__APPLE__)
 	if(!prog_mem){
-		memset(&arena,0,sizeof(struct Mem));
+		if(size % PAGE_SIZE != 0){
+			if(size < (size_t)PAGE_SIZE) size = (size_t)PAGE_SIZE;
+			if(size > (size_t)PAGE_SIZE) size = ((size_t)PAGE_SIZE *((size / (size_t)PAGE_SIZE) + 1));
+		}
 		if(!arena.p)
 			arena.p = mmap(NULL,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
 		else
 			return -1;
 
-		arena.size = size;
 		if(arena.p == MAP_FAILED) return -1;
+		arena.size = size;
 	}else{
 		if(last_addr){
 			if(((uint64_t)((last_addr + size) - prog_mem)) < MEM_SIZE -1 ){
@@ -270,7 +273,12 @@ void close_prog_memory()
 				return;
 			}
 
-			free(free_memory);
+		    if(munmap(free_memory,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem))) == -1){
+				fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
+				if(log) fclose(log);
+				return;
+			}
+
 			if(memory_info){
 				uint32_t i;
 				for( i = 0; i < memory_info_size; i++){
@@ -352,22 +360,26 @@ int create_memory(struct Mem *memory, uint64_t size, int type)
 }
 
 void clear_memory(){
-	if(!prog_mem) return;	
+	if(!prog_mem && !arena.p) return;	
 
-	memset(prog_mem,0,MEM_SIZE);
-	if(free_memory)
-		memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
+	if(arena.p){
+		memset(arena.p,0,arena.size);	
+	}else{
+		memset(prog_mem,0,MEM_SIZE);
+		if(free_memory)
+			memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
 
-	last_addr = NULL;
-	if(memory_info){
-		uint32_t i;
-		for(i = 0; i < memory_info_size; i++){
-			if(memory_info[i]){
-				free(memory_info[i]->p);	
-				memory_info[i]->p = NULL;
-				free(memory_info[i]);
-				memory_info[i] = NULL;
-				if(resize_memory_info() == -1) return;
+		last_addr = NULL;
+		if(memory_info){
+			uint32_t i;
+			for(i = 0; i < memory_info_size; i++){
+				if(memory_info[i]){
+					free(memory_info[i]->p);	
+					memory_info[i]->p = NULL;
+					free(memory_info[i]);
+					memory_info[i] = NULL;
+					if(resize_memory_info() == -1) return;
+				}
 			}
 		}
 	}
