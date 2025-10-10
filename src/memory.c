@@ -109,21 +109,22 @@ int create_arena(size_t size){
 	}else{
 		if(last_addr){
 			if(((uint64_t)((last_addr + size) - prog_mem)) < MEM_SIZE -1 ){
-				if(is_free(last_addr + 1,size) == 0){
+				int8_t *p = last_addr + 1
+				while(is_free((void*)p,size) == -1){
+					if(((p + size) - prog_mem) >= (MEM_SIZE -1)) return -1; 
+					p = p + size;
+				}
 					arena.p = (void*)(last_addr + 1);
 					arena.size = size;
 					last_addr += (last_addr + size) - 1
 					return 0;
-				}
 			}
-		}
-		memset(&arena,0,sizeof(struct Mem));
-		if(!arena.p)
-			arena.p = mmap(NULL,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
-		else
 			return -1;
-
-		if(arena.p == MAP_FAILED) return -1;
+		}
+		
+		memset(&arena,0,sizeof(struct Mem));
+		arena.p = prog_mem;
+		arena.size = size;
 	}
 
 #elif defined(_WIN32)
@@ -134,6 +135,13 @@ int create_arena(size_t size){
 
 int close_arena(){
 #if defined(__linux__) || __APPLE__
+	if(prog_mem){
+		last_addr = ((int8_t)arena.p - 1);
+		memset(arena.p,0,arena.size);
+		memset(&arena,0,sizeof(struct Mem));
+		return 0;
+	}
+
 	if(munmap(arena.p,arena.size) == -1){
 		fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
 		if(log) fclose(log);
@@ -237,13 +245,18 @@ void *get_arena(size_t size)
 		if(last_addr){
 			if(((last_addr + size ) - prog_mem) < (MEM_SIZE -1)) return (void*) last_addr + 1;
 		}
+		return arena.p;
 	}
-
+	if(arena.p) return arena.p;
+	
+	return NULL;
 }
+
 int is_inside_arena(size_t size,struct arena a)
 {
 	return a.bwritten + size < a.size;
 }
+
 void close_prog_memory()
 {
 #if defined(__linux__) || __APPLE__
@@ -606,7 +619,7 @@ void *ask_mem(size_t size){
 			}
 
 			while(is_free((void*)p,size) == -1) {
-				if(((p + size) - prog_mem) > (MEM_SIZE -1)) {
+				if(((p + size) - prog_mem) >= (MEM_SIZE -1)) {
 					goto fall_back;
 				}
 				p += size;
