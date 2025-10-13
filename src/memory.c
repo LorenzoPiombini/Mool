@@ -12,7 +12,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 #include <assert.h>
 #include "memory.h"
 
@@ -64,7 +63,7 @@ int read_from_shared_memory()
 	else
 		return -1;
 }
-
+#if 0
 int write_to_shared_memory(pid_t pid, void* value)
 {
 	if(!shared_memory.p) return SMEM_NOENT;
@@ -91,6 +90,8 @@ void close_shared_memory()
 	shared_memory.p = NULL;
 	shared_memory.size = 0;
 }
+#endif
+
 int create_arena(size_t size){
 #if defined(__linux__)
 	log = open_log_file("log_memory_areana");
@@ -117,10 +118,10 @@ int create_arena(size_t size){
 					if(((p + size) - prog_mem) >= (MEM_SIZE -1)) return -1; 
 					p = p + size;
 				}
-					arena.p = (void*)(last_addr + 1);
-					arena.size = size;
-					last_addr = (last_addr + size) - 1;
-					return 0;
+				arena.p = (void*)(last_addr + 1);
+				arena.size = size;
+				last_addr = (last_addr + size) - 1;
+				return 0;
 			}
 			return -1;
 		}
@@ -175,28 +176,9 @@ int init_prog_memory()
 					PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,
 					-1,0);
 
-	if(prog_mem == MAP_FAILED){
-		fprintf(log,"mmap, failed, fallback malloc used.\n");
-		prog_mem = NULL;
-		prog_mem = malloc(MEM_SIZE*sizeof(int8_t));
-		if(!prog_mem){
-			fprintf(_LOG_,"fall back system using malloc failed, %s:%d.\n"
-					,__FILE__,__LINE__-2);
-			return -1;
-		}
+	if(prog_mem == MAP_FAILED) return -1;
 
-		assert(prog_mem != NULL);
-		memset(prog_mem,0,MEM_SIZE * sizeof(int8_t));
-
-		free_memory = malloc(sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
-		if(!free_memory) 
-			fprintf(_LOG_,"cannot allocate memory for free_memory data, %s:%d.\n"
-					,__FILE__,__LINE__-1);
-
-		assert(free_memory != NULL);
-		memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
-		return 0;
-	}
+	memset(prog_mem,0,MEM_SIZE * sizeof(int8_t));
 
 	/*we insert a page after the memory so we get a SIGSEGV if we overflow*/
 	if(mprotect(prog_mem + MEM_SIZE,PAGE_SIZE,PROT_NONE) == -1){
@@ -212,10 +194,9 @@ int init_prog_memory()
 				,__FILE__,__LINE__-1);
 		return -1;
 	}
-	assert(free_memory != NULL);
 	memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
-	mem_safe = 1;
-#else
+#elif
+	/* TODO WINDOWS CODE */
 	prog_mem = malloc(MEM_SIZE*sizeof(int8_t));
 	if(!prog_mem){ 
 		fprintf(_LOG_,"initial fall back system using malloc failed, %s:%d.\n"
@@ -223,7 +204,6 @@ int init_prog_memory()
 		return -1;
 	}
 
-	assert(prog_mem != NULL);
 	memset(prog_mem,0,MEM_SIZE * sizeof(int8_t));
 
 	free_memory = malloc(sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
@@ -233,7 +213,6 @@ int init_prog_memory()
 		return -1;
 	}
 
-	assert(free_memory != NULL);
 	memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
 #endif
 

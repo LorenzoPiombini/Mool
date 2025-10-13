@@ -1,8 +1,7 @@
 #ifndef _MEMORY_H
 #define _MEMORY_H
 
-#include <stdint.h>
-#include <unistd.h>
+#include <types.h>
 
 #define PAGE_SIZE 4096
 #define MEM_SIZE (PAGE_SIZE*1000) /* 4 Mib */
@@ -37,7 +36,7 @@ int is_inside_arena(size_t size,struct arena a);
 void clear_memory();
 int create_shared_memory(size_t size);
 int read_from_shared_memory();
-int write_to_shared_memory(pid_t pid, void* value);
+//int write_to_shared_memory(pid_t pid, void* value);
 void close_shared_memory();
 int create_memory(struct Mem *memory, uint64_t size, int type);
 int cancel_memory(struct Mem *memory,void *start,size_t size);
