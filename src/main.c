@@ -24,6 +24,7 @@ int main(void)
 	
 	if(create_arena(500) == -1) return -1 ;
 	struct arena ar;
+
 	ar.p = get_arena(NULL);
 	ar.size = 500;
 	ar.bwritten = 0;

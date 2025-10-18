@@ -19,6 +19,7 @@ int e = -1; /*returning error*/
 static int8_t mem_safe = 0;
 static int8_t *prog_mem = NULL;
 static struct Mem arena;
+
 static pid_t proc = -1;
 static int8_t *last_addr = NULL;
 static int8_t *last_addr_arena = NULL;
@@ -37,7 +38,10 @@ static int return_mem(void *start,size_t size);
 
 int create_shared_memory(size_t size)
 {
+#if defined(__linux__)
 	log = open_log_file("log_shared_mem");
+#endif
+
 	memset(&shared_memory,0,sizeof(struct Mem));
 	if(!shared_memory.p){
 #if defined(__linux__)  || defined(__APPLE__)
@@ -90,14 +94,14 @@ int create_arena(size_t size){
 					if(((p + size) - prog_mem) >= (MEM_SIZE -1)) return -1; 
 					p = p + size;
 				}
-				arena.p = (void*)(last_addr + 1);
+				arena.p = (void*)p;
 				arena.size = size;
-				last_addr = (last_addr + size) - 1;
+				last_addr = (p + size) - 1;
 				return 0;
 			}
 			return -1;
 		}
-		
+
 		memset(&arena,0,sizeof(struct Mem));
 		arena.p = prog_mem;
 		arena.size = size;
@@ -112,7 +116,7 @@ int create_arena(size_t size){
 int close_arena(){
 #if defined(__linux__) || __APPLE__
 	if(prog_mem){
-		last_addr = ((int8_t*)arena.p - 1);
+		last_addr = ((int8_t *)arena.p - 1);
 		memset(arena.p,0,arena.size);
 		memset(&arena,0,sizeof(struct Mem));
 		return 0;
@@ -197,9 +201,18 @@ void *get_arena(size_t *size)
 {
 	if(prog_mem && size){
 		if(last_addr){
-			if(((last_addr + *size ) - prog_mem) < (MEM_SIZE -1)) return (void*) last_addr + 1;
+			if(((last_addr + *size ) - prog_mem) < (MEM_SIZE -1)){
+				int8_t *p = last_addr + 1;
+				while(is_free(p,*size) != 0){
+					if(((p + size) - prog_mem) >= (MEM_SIZE -1)) return 0x0; 
+					p += size;
+				}
+				last_addr = (p + *size) - 1;
+				return (void *)p;
+			}
 		}
-		return arena.p;
+		last_addr = (prog_mem + *size) - 1;
+		return (void *)prog_mem;
 	}
 
 	if(arena.p) return arena.p;
@@ -215,14 +228,13 @@ int is_inside_arena(size_t size,struct arena a)
 void close_prog_memory()
 {
 #if defined(__linux__) || __APPLE__
-	if(mem_safe){
-		if(prog_mem){
-			memset(free_memory,0,sizeof (struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
-			if(munmap(prog_mem,MEM_SIZE+(PAGE_SIZE)) == -1){
-				fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
-				if(log) fclose(log);
-				return;
-			}
+	if(prog_mem){
+		memset(free_memory,0,sizeof (struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
+		if(munmap(prog_mem,MEM_SIZE+(PAGE_SIZE)) == -1){
+			fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
+			if(log) fclose(log);
+			return;
+		}
 
 		    if(munmap(free_memory,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem))) == -1){
 				fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
@@ -239,18 +251,16 @@ void close_prog_memory()
 						free(memory_info[i]);
 					}
 				}
-				free(memory_info);
 			}
+			free(memory_info);
+		}
 #if defined(__linux__)
-			fprintf(_LOG_,"memory pool closed.\n");
-			if(log) fclose(log);
-
+		fprintf(_LOG_,"memory pool closed.\n");
+		if(log) fclose(log);
 #endif /*__linux__*/
 		return;
-		}
-	}else{
-		return;
 	}
+	return;
 #endif /*__linux__ || __APPLE__*/
 	memset(free_memory,0,sizeof (struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
 	free(prog_mem);
@@ -550,7 +560,7 @@ void *ask_mem(size_t size){
 			return (void*) prog_mem;
 		}else{
 			/*first check if we have a big enough freed block*/
-			uint64_t i;
+			size_t i;
 			for(i = 0;i < (PAGE_SIZE / sizeof (struct Mem));i++){
 				if(!free_memory[i].p) continue;
 

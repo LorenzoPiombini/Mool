@@ -13,7 +13,7 @@
 
 struct Mem{
 	void *p;
-	uint64_t size;
+	size_t size;
 };/*16 bytes*/
 
 struct arena{
