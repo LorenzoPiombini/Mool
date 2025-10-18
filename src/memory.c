@@ -63,34 +63,6 @@ int read_from_shared_memory()
 	else
 		return -1;
 }
-#if 0
-int write_to_shared_memory(pid_t pid, void* value)
-{
-	if(!shared_memory.p) return SMEM_NOENT;
-
-	if(proc == -1){
-		/*write to memory*/
-		proc = pid;
-		memcpy(shared_memory.p,value,sizeof(uint8_t));
-		return 0;
-	}else if( proc == pid){
-		memcpy(shared_memory.p,value,sizeof(uint8_t));
-		if(*(uint8_t*)value == 0) proc = -1;
-		return 0;
-	}
-
-	return -1;
-}
-void close_shared_memory()
-{
-	if(munmap(shared_memory.p,shared_memory.size) == -1) {
-		fprintf(_LOG_,"shared_memory closed failed\n");
-		return;
-	}
-	shared_memory.p = NULL;
-	shared_memory.size = 0;
-}
-#endif
 
 int create_arena(size_t size){
 #if defined(__linux__)
