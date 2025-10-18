@@ -7,6 +7,16 @@ struct Mytype{
 	char str[5];
 };
 
+int use_arena(char *str,struct arena a){
+	str = (char*) &(((char*)a.p)[a.bwritten]);
+
+	strncpy(str,"when i was younger so much younger than today",strlen("when i wad younger so much younger than today")+1);
+
+	printf("%s\n",str);
+	str = NULL;
+	clear_memory();
+	return 0;
+}
 
 int main(void)
 {
@@ -14,19 +24,36 @@ int main(void)
 	
 	if(create_arena(500) == -1) return -1 ;
 	struct arena ar;
-	ar.p = get_arena(500);
+
+	ar.p = get_arena(NULL);
 	ar.size = 500;
 	ar.bwritten = 0;
 	
 	if(!ar.p) return -1;
 	
-	char *help = &((char*)ar.p)[ar.bwritten];
-
-	strncpy(help,"when i was younger so much younger than today",strlen("when i wad younger so much younger than today")+1);
-
-	ar.bwritten = strlen("when i was younger so much younger than today");
-	
-	printf("%s\n",help);
+	char *help = NULL;
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	use_arena(help,ar);
+	return 0;/*if you forget to close the memory arena, the OS will do it for you, avoiding memory leaks*/
 	close_arena();
 
 	init_prog_memory();

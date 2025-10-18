@@ -12,7 +12,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 #include <assert.h>
 #include "memory.h"
 
@@ -69,32 +68,6 @@ int read_from_shared_memory()
 		return -1;
 }
 
-int write_to_shared_memory(pid_t pid, void* value)
-{
-	if(!shared_memory.p) return SMEM_NOENT;
-
-	if(proc == -1){
-		/*write to memory*/
-		proc = pid;
-		memcpy(shared_memory.p,value,sizeof(uint8_t));
-		return 0;
-	}else if( proc == pid){
-		memcpy(shared_memory.p,value,sizeof(uint8_t));
-		if(*(uint8_t*)value == 0) proc = -1;
-		return 0;
-	}
-
-	return -1;
-}
-void close_shared_memory()
-{
-	if(munmap(shared_memory.p,shared_memory.size) == -1) {
-		fprintf(_LOG_,"shared_memory closed failed\n");
-		return;
-	}
-	shared_memory.p = NULL;
-	shared_memory.size = 0;
-}
 int create_arena(size_t size){
 #if defined(__linux__)
 	log = open_log_file("log_memory_areana");
@@ -102,14 +75,17 @@ int create_arena(size_t size){
 
 #if defined(__linux__) || defined(__APPLE__)
 	if(!prog_mem){
-		memset(&arena,0,sizeof(struct Mem));
+		if(size % PAGE_SIZE != 0){
+			if(size < (size_t)PAGE_SIZE) size = (size_t)PAGE_SIZE;
+			if(size > (size_t)PAGE_SIZE) size = ((size_t)PAGE_SIZE *((size / (size_t)PAGE_SIZE) + 1));
+		}
 		if(!arena.p)
 			arena.p = mmap(NULL,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
 		else
 			return -1;
 
-		arena.size = size;
 		if(arena.p == MAP_FAILED) return -1;
+		arena.size = size;
 	}else{
 		if(last_addr){
 			if(((uint64_t)((last_addr + size) - prog_mem)) < MEM_SIZE -1 ){
@@ -176,28 +152,9 @@ int init_prog_memory()
 					PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,
 					-1,0);
 
-	if(prog_mem == MAP_FAILED){
-		fprintf(log,"mmap, failed, fallback malloc used.\n");
-		prog_mem = NULL;
-		prog_mem = malloc(MEM_SIZE*sizeof(int8_t));
-		if(!prog_mem){
-			fprintf(_LOG_,"fall back system using malloc failed, %s:%d.\n"
-					,__FILE__,__LINE__-2);
-			return -1;
-		}
+	if(prog_mem == MAP_FAILED) return -1;
 
-		assert(prog_mem != NULL);
-		memset(prog_mem,0,MEM_SIZE * sizeof(int8_t));
-
-		free_memory = malloc(sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
-		if(!free_memory) 
-			fprintf(_LOG_,"cannot allocate memory for free_memory data, %s:%d.\n"
-					,__FILE__,__LINE__-1);
-
-		assert(free_memory != NULL);
-		memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
-		return 0;
-	}
+	memset(prog_mem,0,MEM_SIZE * sizeof(int8_t));
 
 	/*we insert a page after the memory so we get a SIGSEGV if we overflow*/
 	if(mprotect(prog_mem + MEM_SIZE,PAGE_SIZE,PROT_NONE) == -1){
@@ -213,10 +170,9 @@ int init_prog_memory()
 				,__FILE__,__LINE__-1);
 		return -1;
 	}
-	assert(free_memory != NULL);
 	memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
-	mem_safe = 1;
-#else
+#elif
+	/* TODO WINDOWS CODE */
 	prog_mem = malloc(MEM_SIZE*sizeof(int8_t));
 	if(!prog_mem){ 
 		fprintf(_LOG_,"initial fall back system using malloc failed, %s:%d.\n"
@@ -224,7 +180,6 @@ int init_prog_memory()
 		return -1;
 	}
 
-	assert(prog_mem != NULL);
 	memset(prog_mem,0,MEM_SIZE * sizeof(int8_t));
 
 	free_memory = malloc(sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
@@ -234,7 +189,6 @@ int init_prog_memory()
 		return -1;
 	}
 
-	assert(free_memory != NULL);
 	memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
 #endif
 
@@ -243,21 +197,21 @@ int init_prog_memory()
 }
 
 
-void *get_arena(size_t size)
+void *get_arena(size_t *size)
 {
-	if(prog_mem){
+	if(prog_mem && size){
 		if(last_addr){
-			if(((last_addr + size ) - prog_mem) < (MEM_SIZE -1)){
+			if(((last_addr + *size ) - prog_mem) < (MEM_SIZE -1)){
 				int8_t *p = last_addr + 1;
-				while(is_free(p,size) != 0){
+				while(is_free(p,*size) != 0){
 					if(((p + size) - prog_mem) >= (MEM_SIZE -1)) return 0x0; 
 					p += size;
 				}
-				last_addr = (p + size) - 1;
+				last_addr = (p + *size) - 1;
 				return (void *)p;
 			}
 		}
-		last_addr = (prog_mem + size) - 1;
+		last_addr = (prog_mem + *size) - 1;
 		return (void *)prog_mem;
 	}
 
@@ -282,18 +236,20 @@ void close_prog_memory()
 			return;
 		}
 
-		if(munmap(free_memory,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)))){
-			fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
-			if(log) fclose(log);
-			return;
-		}
-		if(memory_info){
-			uint32_t i;
-			for( i = 0; i < memory_info_size; i++){
-				if(memory_info[i]){
-					if(memory_info[i]->p)
-						free(memory_info[i]->p);
-					free(memory_info[i]);
+		    if(munmap(free_memory,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem))) == -1){
+				fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
+				if(log) fclose(log);
+				return;
+			}
+
+			if(memory_info){
+				uint32_t i;
+				for( i = 0; i < memory_info_size; i++){
+					if(memory_info[i]){
+						if(memory_info[i]->p)
+							free(memory_info[i]->p);
+						free(memory_info[i]);
+					}
 				}
 			}
 			free(memory_info);
@@ -365,22 +321,26 @@ int create_memory(struct Mem *memory, uint64_t size, int type)
 }
 
 void clear_memory(){
-	if(!prog_mem) return;	
+	if(!prog_mem && !arena.p) return;	
 
-	memset(prog_mem,0,MEM_SIZE);
-	if(free_memory)
-		memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
+	if(arena.p){
+		memset(arena.p,0,arena.size);	
+	}else{
+		memset(prog_mem,0,MEM_SIZE);
+		if(free_memory)
+			memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
 
-	last_addr = NULL;
-	if(memory_info){
-		uint32_t i;
-		for(i = 0; i < memory_info_size; i++){
-			if(memory_info[i]){
-				free(memory_info[i]->p);	
-				memory_info[i]->p = NULL;
-				free(memory_info[i]);
-				memory_info[i] = NULL;
-				if(resize_memory_info() == -1) return;
+		last_addr = NULL;
+		if(memory_info){
+			uint32_t i;
+			for(i = 0; i < memory_info_size; i++){
+				if(memory_info[i]){
+					free(memory_info[i]->p);	
+					memory_info[i]->p = NULL;
+					free(memory_info[i]);
+					memory_info[i] = NULL;
+					if(resize_memory_info() == -1) return;
+				}
 			}
 		}
 	}
