@@ -8,6 +8,7 @@
 #define ONE_Mib (1024 * 1000)
 #define FIVE_H_Kib (1024 * 500)
 #define EIGTH_Kib (1024 * 8)
+#define ONE_Kib (1024 * 2)
 #define SMEM_EXIST 2
 #define SMEM_NOENT 3
 

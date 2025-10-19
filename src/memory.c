@@ -1,4 +1,9 @@
-#if defined(__linux__) || __APPLE__
+#if defined(__linux__)
+#define _GNU_SOURCE         /* See feature_test_macros(7) */
+#include <sys/mman.h>
+#endif
+
+#if defined(__APPLE__)
 	#include <unistd.h>
 	#include <sys/mman.h>
 #endif
@@ -10,24 +15,22 @@
 	#include <log.h>
 #endif
 
-#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include "memory.h"
 
 int e = -1; /*returning error*/
 static int8_t mem_safe = 0;
-static int8_t *prog_mem = NULL;
+static int8_t *prog_mem = 0x0;
 static struct Mem arena;
 
-static pid_t proc = -1;
-static int8_t *last_addr = NULL;
-static int8_t *last_addr_arena = NULL;
+static int8_t *last_addr = 0x0;
+static int8_t *last_addr_arena = 0x0;
 static struct Mem shared_memory;
-static struct Mem *free_memory = NULL;
-static struct Mem **memory_info = NULL;
+static struct Mem *free_memory = 0x0;
+static struct Mem **memory_info = 0x0;
 static uint32_t memory_info_size = 0;
-static FILE *log = NULL;
+static FILE *log = 0x0;
 #define _LOG_ !log ? stderr : log
 
 /*static functions*/
@@ -45,7 +48,7 @@ int create_shared_memory(size_t size)
 	memset(&shared_memory,0,sizeof(struct Mem));
 	if(!shared_memory.p){
 #if defined(__linux__)  || defined(__APPLE__)
-		if((shared_memory.p = mmap(NULL,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0)) == (void*)-1){
+		if((shared_memory.p = mmap(0x0,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0)) == (void*)-1){
 			fprintf(_LOG_,"cannot open shared memory\n");
 			return -1;
 		}
@@ -80,7 +83,7 @@ int create_arena(size_t size){
 			if(size > (size_t)PAGE_SIZE) size = ((size_t)PAGE_SIZE *((size / (size_t)PAGE_SIZE) + 1));
 		}
 		if(!arena.p)
-			arena.p = mmap(NULL,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
+			arena.p = mmap(0x0,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
 		else
 			return -1;
 
@@ -128,7 +131,7 @@ int close_arena(){
 		return -1;
 	}
 	memset(&arena,0,sizeof(struct Mem));
-	last_addr_arena = NULL;
+	last_addr_arena = 0x0;
 #elif defined(_WIN32)
 	/*windows code*/
 #endif
@@ -148,7 +151,7 @@ int init_prog_memory()
 #endif
 
 #if defined(__linux__) || __APPLE__
-	prog_mem = (int8_t *)mmap(NULL,sizeof (int8_t) * (MEM_SIZE + PAGE_SIZE), 
+	prog_mem = (int8_t *)mmap(0x0,sizeof (int8_t) * (MEM_SIZE + PAGE_SIZE), 
 					PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,
 					-1,0);
 
@@ -161,35 +164,15 @@ int init_prog_memory()
 		fprintf(_LOG_,"memory protection failed.\n");
 	}
 
-	free_memory = mmap(NULL,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)),
-					PROT_READ | PROT_WRITE,
-					MAP_SHARED | MAP_ANONYMOUS,
-					-1,0);
+	free_memory = (struct Mem*) mmap(0x0,PAGE_SIZE,PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
+
 	if(free_memory == MAP_FAILED){
 		fprintf(_LOG_,"cannot allocate memory for free_memory data, %s:%d.\n"
 				,__FILE__,__LINE__-1);
 		return -1;
 	}
-	memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
 #elif
 	/* TODO WINDOWS CODE */
-	prog_mem = malloc(MEM_SIZE*sizeof(int8_t));
-	if(!prog_mem){ 
-		fprintf(_LOG_,"initial fall back system using malloc failed, %s:%d.\n"
-				,__FILE__,__LINE__-2);
-		return -1;
-	}
-
-	memset(prog_mem,0,MEM_SIZE * sizeof(int8_t));
-
-	free_memory = malloc(sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
-	if(!free_memory){
-		fprintf(_LOG_,"cannot allocate memory for free_memory data, %s:%d.\n"
-				,__FILE__,__LINE__-1);
-		return -1;
-	}
-
-	memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
 #endif
 
 	fprintf(_LOG_,"memory pool created.\n");
@@ -217,7 +200,7 @@ void *get_arena(size_t *size)
 
 	if(arena.p) return arena.p;
 	
-	return NULL;
+	return 0x0;
 }
 
 int is_inside_arena(size_t size,struct arena a)
@@ -247,12 +230,16 @@ void close_prog_memory()
 				for( i = 0; i < memory_info_size; i++){
 					if(memory_info[i]){
 						if(memory_info[i]->p)
-							free(memory_info[i]->p);
-						free(memory_info[i]);
+							munmap(memory_info[i]->p,memory_info[i]->size);
+						munmap(memory_info[i],sizeof **memory_info);
 					}
 				}
+				if(memory_info_size > (PAGE_SIZE / sizeof(struct Mem*))){
+					munmap(memory_info,(1 +(memory_info_size / (PAGE_SIZE /sizeof(struct Mem*)))) * PAGE_SIZE);
+				}else{
+					munmap(memory_info,PAGE_SIZE);
+				}
 			}
-			free(memory_info);
 		}
 #if defined(__linux__)
 		fprintf(_LOG_,"memory pool closed.\n");
@@ -261,22 +248,9 @@ void close_prog_memory()
 		return;
 	}
 	return;
-#endif /*__linux__ || __APPLE__*/
-	memset(free_memory,0,sizeof (struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));
-	free(prog_mem);
-	free(free_memory);
-	if(memory_info){
-		uint32_t i;
-		for( i = 0; i < memory_info_size; i++){
-			if(memory_info[i]){
-				if(memory_info[i]->p)
-					free(memory_info[i]->p);
-				free(memory_info[i]);
-			}
-
-		}
-		free(memory_info);
-	}
+#elif defined(_WIN32)
+	/*WINDOWS CODE*/
+#endif
 }
 
 
@@ -330,21 +304,18 @@ void clear_memory(){
 		if(free_memory)
 			memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
 
-		last_addr = NULL;
+		last_addr = 0x0;
 		if(memory_info){
-			uint32_t i;
-			for(i = 0; i < memory_info_size; i++){
-				if(memory_info[i]){
-					free(memory_info[i]->p);	
-					memory_info[i]->p = NULL;
-					free(memory_info[i]);
-					memory_info[i] = NULL;
-					if(resize_memory_info() == -1) return;
-				}
+			if(memory_info_size > (PAGE_SIZE / sizeof(struct Mem*))){
+				munmap(memory_info,(1 +(memory_info_size / (PAGE_SIZE /sizeof(struct Mem*)))) * PAGE_SIZE);
+			}else{
+				munmap(memory_info,PAGE_SIZE);
 			}
+			memory_info = 0x0;
 		}
 	}
 }
+
 int cancel_memory(struct Mem *memory,void *start,size_t size){
 	if(memory && start) return -1;
 	if(!memory && !start) return -1;
@@ -359,10 +330,10 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 			for(i = 0; i < memory_info_size; i++){
 				if(memory_info[i]){
 					if(memory_info[i]->p == start){
-						free(memory_info[i]->p);	
-						memory_info[i]->p = NULL;
-						free(memory_info[i]);
-						memory_info[i] = NULL;
+						munmap(memory_info[i]->p,memory_info[i]->size);	
+						memory_info[i]->p = 0x0;
+						munmap(memory_info[i],sizeof **memory_info);
+						memory_info[i] = 0x0;
 						if(resize_memory_info() == -1) return -1;
 
 						fprintf(_LOG_,"freed %ld bytes from fall back system\n",size);
@@ -382,9 +353,9 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 			for(i = 0; i < memory_info_size; i++){
 				if(memory_info[i]){
 					if(memory_info[i]->p == memory->p){
-						free(memory->p);	
-						free(memory_info[i]);
-						memory_info[i] = NULL;
+						munmap(memory->p,memory->size);	
+						munmap(memory_info[i],sizeof **memory_info);
+						memory_info[i] = 0x0;
 						if(resize_memory_info() == -1) return -1;
 
 						fprintf(_LOG_,"freed %ld bytes from fall back system\n",memory->size);
@@ -413,7 +384,7 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 	if(is_free(prog_mem,MEM_SIZE-1) == 0){
 		memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));	
 		memset(prog_mem,0,MEM_SIZE);
-		last_addr = NULL;
+		last_addr = 0x0;
 		fprintf(_LOG_,"freed all memory\n");
 	}
 	return 0;
@@ -518,28 +489,28 @@ void *value_at_index(uint64_t index,struct Mem *memory,int type)
 {
 	switch(type){
 		case INT:
-			if((int)((memory->size / sizeof(int)) - (int)index ) <= 0 ) return NULL;
+			if((int)((memory->size / sizeof(int)) - (int)index ) <= 0 ) return 0x0;
 			return (void*)((int*)memory->p + index);
 		case STRING:
-			if((int)((memory->size / sizeof(char)) - index ) <= 0 ) return NULL;
+			if((int)((memory->size / sizeof(char)) - index ) <= 0 ) return 0x0;
 			return (void*)((char*)memory->p + index);
 		case LONG:
-			if((int)((memory->size / sizeof(long)) - index ) <= 0 ) return NULL;
+			if((int)((memory->size / sizeof(long)) - index ) <= 0 ) return 0x0;
 			return (void*)((long*)memory->p + index);
 		case FLOAT:
-			if((int)((memory->size / sizeof(float)) - index ) <= 0 ) return NULL;
+			if((int)((memory->size / sizeof(float)) - index ) <= 0 ) return 0x0;
 			return (void*)((float*)memory->p + index);
 		case DOUBLE:
-			if((int)((memory->size / sizeof(double)) - index ) <= 0 ) return NULL;
+			if((int)((memory->size / sizeof(double)) - index ) <= 0 ) return 0x0;
 			return (void*)((double*)memory->p + index);
 		default:
-			return NULL;
+			return 0x0;
 	}
 }
 
 void *ask_mem(size_t size){
-	if(size <= 0) return NULL;
-	if(!prog_mem && !arena.p) return NULL;
+	if(size <= 0) return 0x0;
+	if(!prog_mem && !arena.p) return 0x0;
 
 	if(prog_mem)
 		if(size > (MEM_SIZE - 1)) goto fall_back;
@@ -547,7 +518,7 @@ void *ask_mem(size_t size){
 	if(arena.p){
 		if((arena.size-1) < size) { 
 			/*here you may want to expand the memory*/
-			return NULL;
+			return 0x0;
 		}
 	}
 
@@ -582,7 +553,7 @@ void *ask_mem(size_t size){
 			}
 
 			/*look for space in the memory block*/
-			int8_t *p = NULL;
+			int8_t *p = 0x0;
 			if(last_addr){
 				if((last_addr - prog_mem) >= (MEM_SIZE-1)) goto fall_back;
 				if(((last_addr + size) - prog_mem) >= (MEM_SIZE-1)) goto fall_back;
@@ -614,10 +585,10 @@ void *ask_mem(size_t size){
 			return (void*) arena.p;
 		}else{
 			/*look for space in the memory block*/
-			int8_t *p = NULL;
+			int8_t *p = 0x0;
 			if(last_addr_arena){
-				if((uint64_t)(last_addr_arena - (int8_t*)arena.p) >= (arena.size - 1)) return NULL;
-				if((uint64_t)((last_addr_arena + size) - (int8_t*)arena.p) >= (arena.size - 1)) return NULL;
+				if((uint64_t)(last_addr_arena - (int8_t*)arena.p) >= (arena.size - 1)) return 0x0;
+				if((uint64_t)((last_addr_arena + size) - (int8_t*)arena.p) >= (arena.size - 1)) return 0x0;
 
 				p = last_addr_arena + 1;
 			}else{
@@ -626,7 +597,7 @@ void *ask_mem(size_t size){
 
 			while(is_free((void*)p,size) == -1) {
 				if((uint64_t)((p + size) - (int8_t*)arena.p) > (arena.size -1)) {
-					return NULL;
+					return 0x0;
 				}
 				p += size;
 			}
@@ -640,53 +611,85 @@ void *ask_mem(size_t size){
 
 
 fall_back:
+#if defined(__linux__)
 	fprintf(_LOG_,"using fall back system.\n");
-	void *p = malloc(size);
-	if(!p){
+#endif
+#if defined(__linux__) || defined(__APPLE__)
+	void *p = mmap(0x0,size,PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
+
+	if(p == MAP_FAILED){
 		fprintf(_LOG_,"memory allocation failed, %s:%d.\n",__FILE__,__LINE__-2);
-		return NULL;
+		return 0x0;
 	}
-	memset(p,0,size);
 
 	if(memory_info_size == 0){
-		memory_info = malloc(sizeof(struct Mem*));
-		if(!memory_info){
+		memory_info = (struct Mem**) mmap(0x0,PAGE_SIZE,PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
+
+		if(memory_info == MAP_FAILED){
 			fprintf(_LOG_,"memory allocation failed, %s:%d.\n",__FILE__,__LINE__-2);
-			return NULL;
+			return 0x0;
 		}
 
-		memset(memory_info,0,sizeof *memory_info);
-		memory_info[0] = malloc(sizeof **memory_info);
-		if(!memory_info[0]){
+		memory_info[0] = (struct Mem*) mmap(0x0,sizeof **memory_info,PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
+
+		if(memory_info[0] == MAP_FAILED){
 			fprintf(_LOG_,"memory allocation failed, %s:%d.\n",__FILE__,__LINE__-2);
-			return NULL;
+			return 0x0;
 		}
 
-		memset(memory_info[0],0,sizeof **memory_info);
 		memory_info[0]->p = p;
 		memory_info[0]->size = size;
 		memory_info_size++;
-	}else{
+	}else if (memory_info_size >= (PAGE_SIZE/sizeof(struct Mem*))){
 		uint32_t new_size = memory_info_size + 1;
-		struct Mem **n_mi = realloc(memory_info,new_size * sizeof *memory_info);
-		if(!n_mi){
+		struct Mem **n_mi = 0x0;
+
+		if((double)memory_info_size / (PAGE_SIZE / sizeof(struct Mem*)) > 1.00){
+			long old_size = (memory_info_size / (PAGE_SIZE /sizeof(struct Mem*)) + 1) * PAGE_SIZE;
+			n_mi = (struct Mem**) mremap(memory_info,old_size,old_size + PAGE_SIZE, MREMAP_MAYMOVE);
+		}else if((double)memory_info_size / (PAGE_SIZE / sizeof(struct Mem*)) == 1.00) {
+			n_mi = (struct Mem**) mremap(memory_info,PAGE_SIZE,PAGE_SIZE * 2, MREMAP_MAYMOVE);
+		}
+
+		if(n_mi == MAP_FAILED){
 			fprintf(_LOG_,"memory allocation failed, %s:%d.\n",__FILE__,__LINE__-2);
-			return NULL;
+			return 0x0;
 		}
 		memory_info_size = new_size;
 		memory_info = n_mi;
-		memory_info[memory_info_size - 1] = malloc(sizeof **memory_info);
-		if(!memory_info[memory_info_size - 1]){
+		memory_info[memory_info_size - 1] = mmap(0x0,sizeof **memory_info,
+						PROT_READ | PROT_WRITE,
+						MAP_SHARED | MAP_ANONYMOUS,-1,0);
+
+		if(memory_info[memory_info_size - 1] == MAP_FAILED){
 			fprintf(_LOG_,"memory allocation failed, %s:%d.\n",__FILE__,__LINE__-2);
-			return NULL;
+			return 0x0;
 		}
 
-		memset(memory_info[memory_info_size -1],0,sizeof **memory_info);
 		memory_info[memory_info_size - 1]->size = size;
 		memory_info[memory_info_size - 1]->p = p;
+	}else{
+	
+		uint32_t i = 0;
+		while(i < memory_info_size && memory_info[i]) i++;
+
+		memory_info[i] = (struct Mem*) mmap(0x0,sizeof **memory_info,PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
+
+		if(memory_info[i] == MAP_FAILED){
+			fprintf(_LOG_,"memory allocation failed, %s:%d.\n",__FILE__,__LINE__-2);
+			return 0x0;
+		}
+
+		memory_info[i]->p = p;
+		memory_info[i]->size = size;
+		memory_info_size++;
 	}
 	return p;
+#elif defined(_WIN32)
+	/*WINDOWS code*/
+#endif
 }
+
 
 int expand_memory(struct Mem *memory, size_t size,int type){
 	void *expanded_m = reask_mem(memory->p,memory->size,size);
@@ -725,20 +728,21 @@ int expand_memory(struct Mem *memory, size_t size,int type){
 void *reask_mem(void *p,size_t old_size,size_t size)
 {
 	if(memory_info){
-		/*you have to check where is the memory from */
+		/*check where is the memory from */
 		uint32_t i;
 		for(i = 0; i < memory_info_size; i++){
 			if(memory_info[i]){
 
 				if(memory_info[i]->p == p){
-					void *n_mem = realloc(memory_info[i]->p,size);
-					if(!n_mem) return NULL;
+						
+					void *n_mem = mremap(memory_info[i]->p,memory_info[i]->size,size,MREMAP_MAYMOVE);
+					if(n_mem == MAP_FAILED) return 0x0;
 
 					memory_info[i]->size = size;
 					memory_info[i]->p = n_mem;
 
-					fprintf(_LOG_,"reask_mem() performed a realloc on the fall_back system,"\
-							"pointer reallocated %p, new size = %ld\n",
+					fprintf(_LOG_,"reask_mem() performed a remap on the fall_back system,"\
+							"pointer remapped ocated %p, new size = %ld\n",
 							(void*)memory_info[i]->p,size);
 
 					return memory_info[i]->p;
@@ -753,7 +757,7 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 		void* p_to_left_mem = (int8_t*)p + size;
 		if(return_mem(p_to_left_mem,old_size - size) == -1){
 			fprintf(_LOG_,"return_mem() failed. %s:%d.\n",__FILE__,__LINE__-1);
-			return NULL;
+			return 0x0;
 		}
 		fprintf(_LOG_,"memory resized to %ld, from %ld",old_size,size);
 		return p;
@@ -770,13 +774,13 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 		/*look for a new block*/
 		if(size > old_size){
 			void *new_block = ask_mem(size);
-			if(!new_block) return NULL;
+			if(!new_block) return 0x0;
 
 			/*cpy memory from oldblock to new and free the old*/
 			memcpy(new_block,p,old_size);
 			if(return_mem(p,old_size) == -1){
 				return_mem(new_block,old_size+size);
-				return NULL;
+				return 0x0;
 			}
 
 			return new_block;
@@ -792,13 +796,13 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 		/*look for a new block*/
 		if(size > old_size){
 			void *new_block = ask_mem(size);
-			if(!new_block) return NULL;
+			if(!new_block) return 0x0;
 
 			/*cpy memory from oldblock to new and free the old*/
 			memcpy(new_block,p,old_size);
 			if(return_mem(p,old_size) == -1){
 				return_mem(new_block,old_size+size);
-				return NULL;
+				return 0x0;
 			}
 
 			return new_block;
@@ -864,7 +868,7 @@ static int is_free(void *mem, size_t size){
 	if(cbuf[0] !=  '\0') return -1;
 	int i;
 	for(i = 1; i < 128;i++){
-		if(strstr(cbuf,(char *)&i) != NULL) return -1;
+		if(strstr(cbuf,(char *)&i) != 0x0) return -1;
 	}
 
 	return 0;
@@ -876,21 +880,26 @@ static int resize_memory_info()
 		memory_info_size = 0;
 		if(memory_info[0]){
 			if(memory_info[0]->p)
-				free(memory_info[0]->p);
-			free(memory_info[0]);
+				munmap(memory_info[0]->p,memory_info[0]->size);
+			munmap(memory_info[0],sizeof **memory_info);
 		}
-		free(memory_info);
-		memory_info = NULL;
+
+		if(memory_info_size > (PAGE_SIZE / sizeof(struct Mem*))){
+			munmap(memory_info,(1 +(memory_info_size / (PAGE_SIZE /sizeof(struct Mem*)))) * PAGE_SIZE);
+		}else{
+			munmap(memory_info,PAGE_SIZE);
+		}
+		memory_info = 0x0;
 		return 0;
 	}	
 
-	/*move the NULL pointers at the end*/
+	/*move the 0x0 pointers at the end*/
 	uint32_t i,j;
 	for(i = 0,j = 1; i < memory_info_size;i++,j++){
 		if(memory_info_size - i > 1){
-			if(memory_info[i] == NULL && memory_info[j] != NULL){
+			if(memory_info[i] == 0x0 && memory_info[j] != 0x0){
 				memory_info[i] = memory_info[j];
-				memory_info[j] = NULL;
+				memory_info[j] = 0x0;
 				continue;
 			}
 		}
@@ -898,8 +907,18 @@ static int resize_memory_info()
 	}
 
 	uint32_t new_size = memory_info_size - 1;
-	struct Mem **n_mi = realloc(memory_info,new_size * sizeof *memory_info);
-	if(!n_mi){
+	struct Mem **n_mi = 0x0;
+
+	if(memory_info_size / (PAGE_SIZE / sizeof(struct Mem*)) == 
+			new_size / (PAGE_SIZE / sizeof(struct Mem*))) return 0;
+
+
+	if((double)new_size / (PAGE_SIZE / sizeof(struct Mem*)) > 1.00){
+		long old_size = (memory_info_size / (PAGE_SIZE /sizeof(struct Mem*)) + 1) * PAGE_SIZE;
+		n_mi = (struct Mem**) mremap(memory_info,old_size,old_size - PAGE_SIZE, MREMAP_MAYMOVE);
+	}
+	
+	if(n_mi == MAP_FAILED){
 		fprintf(_LOG_,"resizing memory_info array failed, %s:%d.\n",__FILE__,__LINE__-2);
 		return -1;
 	}

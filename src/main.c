@@ -53,7 +53,8 @@ int main(void)
 	use_arena(help,ar);
 	use_arena(help,ar);
 	use_arena(help,ar);
-	return 0;/*if you forget to close the memory arena, the OS will do it for you, avoiding memory leaks*/
+/*if you forget to close the memory arena, the OS will do it for you, avoiding memory leaks*/
+	/*return 0;*/
 	close_arena();
 
 	init_prog_memory();
