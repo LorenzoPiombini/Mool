@@ -20,7 +20,6 @@
 #include "memory.h"
 
 int e = -1; /*returning error*/
-static int8_t mem_safe = 0;
 static int8_t *prog_mem = 0x0;
 static struct Mem arena;
 
@@ -187,8 +186,8 @@ void *get_arena(size_t *size)
 			if(((last_addr + *size ) - prog_mem) < (MEM_SIZE -1)){
 				int8_t *p = last_addr + 1;
 				while(is_free(p,*size) != 0){
-					if(((p + size) - prog_mem) >= (MEM_SIZE -1)) return 0x0; 
-					p += size;
+					if(((p + *size) - prog_mem) >= (MEM_SIZE -1)) return 0x0; 
+					p += *size;
 				}
 				last_addr = (p + *size) - 1;
 				return (void *)p;
@@ -240,7 +239,6 @@ void close_prog_memory()
 					munmap(memory_info,PAGE_SIZE);
 				}
 			}
-		}
 #if defined(__linux__)
 		fprintf(_LOG_,"memory pool closed.\n");
 		if(log) fclose(log);
