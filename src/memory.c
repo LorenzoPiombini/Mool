@@ -19,16 +19,16 @@
 #include <assert.h>
 #include "memory.h"
 
+#define MAX_ARENAS 10
 int e = -1; /*returning error*/
-static int8_t *prog_mem = 0x0;
-static struct Mem arena;
+static i8 *prog_mem = 0x0;
+static struct Arena arenas[MAX_ARENAS] = {0};
 
-static int8_t *last_addr = 0x0;
-static int8_t *last_addr_arena = 0x0;
-static struct Mem shared_memory;
+static i8 *last_addr = 0x0;
+static i8 *last_addr_arena[MAX_ARENAS] = {0};
 static struct Mem *free_memory = 0x0;
 static struct Mem **memory_info = 0x0;
-static uint32_t memory_info_size = 0;
+static ui32 memory_info_size = 0;
 static FILE *log = 0x0;
 #define _LOG_ !log ? stderr : log
 
@@ -38,37 +38,6 @@ static int resize_memory_info();
 static int return_mem(void *start,size_t size);
 
 
-int create_shared_memory(size_t size)
-{
-#if defined(__linux__)
-	log = open_log_file("log_shared_mem");
-#endif
-
-	memset(&shared_memory,0,sizeof(struct Mem));
-	if(!shared_memory.p){
-#if defined(__linux__)  || defined(__APPLE__)
-		if((shared_memory.p = mmap(0x0,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0)) == (void*)-1){
-			fprintf(_LOG_,"cannot open shared memory\n");
-			return -1;
-		}
-#elif defined(_WIN32)
-		/*windows code*/
-#endif
-		shared_memory.size = (uint64_t)size;
-		return 0;
-	}
-	return SMEM_EXIST;	
-}
-
-int read_from_shared_memory()
-{
-	if(!shared_memory.p) return SMEM_NOENT;
-
-	if(*(int8_t*)shared_memory.p == 0) 
-		return 0;
-	else
-		return -1;
-}
 
 int create_arena(size_t size){
 #if defined(__linux__)
@@ -77,36 +46,66 @@ int create_arena(size_t size){
 
 #if defined(__linux__) || defined(__APPLE__)
 	if(!prog_mem){
+		size_t original_size = size;
 		if(size % PAGE_SIZE != 0){
 			if(size < (size_t)PAGE_SIZE) size = (size_t)PAGE_SIZE;
 			if(size > (size_t)PAGE_SIZE) size = ((size_t)PAGE_SIZE *((size / (size_t)PAGE_SIZE) + 1));
 		}
-		if(!arena.p)
-			arena.p = mmap(0x0,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
-		else
-			return -1;
 
-		if(arena.p == MAP_FAILED) return -1;
-		arena.size = size;
+		i32 i;
+		for(i = 0; i < MAX_ARENAS; i++){
+			if(arenas[i].mem.p){
+				if(arenas[i].mem.size + original_size >= arenas[i].capacity)continue;
+
+				last_addr_arena[i] = ((i8*)arenas[i].mem.p + original_size) - 1;
+				arenas[i].mem.size += original_size;
+
+				return 0;
+			}
+
+			arenas[i].mem.p = mmap(0x0,size, PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
+			if(arenas[i].mem.p == MAP_FAILED) return -1;
+			arenas[i].mem.size = original_size;
+			arenas[i].capacity = size;
+			break;
+		}
+		
+		if(i == MAX_ARENAS){
+			/*nothing was allocated!*/
+			return -1;
+		}
 	}else{
 		if(last_addr){
-			if(((uint64_t)((last_addr + size) - prog_mem)) < MEM_SIZE -1 ){
-				int8_t *p = last_addr + 1;
+			if(((ui64)((last_addr + size) - prog_mem)) < MEM_SIZE -1 ){
+				i8 *p = last_addr + 1;
 				while(is_free((void*)p,size) == -1){
 					if(((p + size) - prog_mem) >= (MEM_SIZE -1)) return -1; 
 					p = p + size;
 				}
-				arena.p = (void*)p;
-				arena.size = size;
-				last_addr = (p + size) - 1;
+
+				i32 i;
+				for(i = 0;i < MAX_ARENAS;i++){
+					if(arenas[i].mem.p) continue;
+					arenas[i].mem.p = (void*)p;
+					arenas[i].mem.size = size;
+					arenas[i].capacity = size;
+
+					last_addr = (p + size) - 1;
+				}
 				return 0;
 			}
 			return -1;
 		}
 
-		memset(&arena,0,sizeof(struct Mem));
-		arena.p = prog_mem;
-		arena.size = size;
+		i32 i;
+		for(i = 0;i < MAX_ARENAS;i++){
+			if(arenas[i].mem.p)continue;
+
+			memset(&arenas[i],0,sizeof(struct Arena));
+			arenas[i].mem.p = prog_mem;
+			arenas[i].mem.size = size;
+			arenas[i].capacity = size;
+		}
 	}
 
 #elif defined(_WIN32)
@@ -117,27 +116,36 @@ int create_arena(size_t size){
 
 int close_arena(){
 #if defined(__linux__) || __APPLE__
+	i32 i;
 	if(prog_mem){
-		last_addr = ((int8_t *)arena.p - 1);
-		memset(arena.p,0,arena.size);
-		memset(&arena,0,sizeof(struct Mem));
+		for(i = 0;i < MAX_ARENAS; i++){
+			if(!arenas[i].mem.p) continue;
+			
+			last_addr = ((i8 *)arenas[i].mem.p - 1);
+		}
+		memset(&arenas,0,MAX_ARENAS * sizeof(struct Arena));
 		return 0;
 	}
 
-	if(munmap(arena.p,arena.size) == -1){
-		fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
-		if(log) fclose(log);
-		return -1;
+	for(i = 0;i < MAX_ARENAS; i++){
+		if(!arenas[i].mem.p) continue;
+		
+		if(munmap(arenas[i].mem.p,arenas[i].capacity) == -1){
+			fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
+			if(log) fclose(log);
+			return -1;
+		}
+		last_addr_arena[i] = 0x0;
 	}
-	memset(&arena,0,sizeof(struct Mem));
-	last_addr_arena = 0x0;
+
+	memset(&arenas,0,MAX_ARENAS * sizeof(struct Arena));
 #elif defined(_WIN32)
 	/*windows code*/
 #endif
 
 #if defined(__linux__)
-		fprintf(_LOG_,"memory arena closed.\n");
-		if(log) fclose(log);
+	fprintf(_LOG_,"memory arena closed.\n");
+	if(log) fclose(log);
 #endif /*__linux__*/
 	return 0;
 }
@@ -150,13 +158,13 @@ int init_prog_memory()
 #endif
 
 #if defined(__linux__) || __APPLE__
-	prog_mem = (int8_t *)mmap(0x0,sizeof (int8_t) * (MEM_SIZE + PAGE_SIZE), 
-					PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,
-					-1,0);
+	prog_mem = (i8 *)mmap(0x0,sizeof (i8) * (MEM_SIZE + PAGE_SIZE), 
+			PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,
+			-1,0);
 
 	if(prog_mem == MAP_FAILED) return -1;
 
-	memset(prog_mem,0,MEM_SIZE * sizeof(int8_t));
+	memset(prog_mem,0,MEM_SIZE * sizeof(i8));
 
 	/*we insert a page after the memory so we get a SIGSEGV if we overflow*/
 	if(mprotect(prog_mem + MEM_SIZE,PAGE_SIZE,PROT_NONE) == -1){
@@ -181,10 +189,10 @@ int init_prog_memory()
 
 void *get_arena(size_t *size)
 {
-	if(prog_mem && size){
+	if(prog_mem && size){/*get a piece of memory from the big chunk*/
 		if(last_addr){
 			if(((last_addr + *size ) - prog_mem) < (MEM_SIZE -1)){
-				int8_t *p = last_addr + 1;
+				i8 *p = last_addr + 1;
 				while(is_free(p,*size) != 0){
 					if(((p + *size) - prog_mem) >= (MEM_SIZE -1)) return 0x0; 
 					p += *size;
@@ -197,15 +205,17 @@ void *get_arena(size_t *size)
 		return (void *)prog_mem;
 	}
 
-	if(arena.p) return arena.p;
-	
+	i32 i;
+	for(i = 0; i < MAX_ARENAS; i++){
+		if(!arenas[i].mem.p) continue;
+		if((ui64)((i8*)arenas[i].mem.p + arenas[i].mem.size - &((i8*)(arenas[i].mem.p))[0]) > arenas[i].capacity) continue;
+		void *p = arenas[i].mem.p + arenas[i].mem.size;
+		return p;
+	}
+
 	return 0x0;
 }
 
-int is_inside_arena(size_t size,struct arena a)
-{
-	return a.bwritten + size < a.size;
-}
 
 void close_prog_memory()
 {
@@ -218,27 +228,27 @@ void close_prog_memory()
 			return;
 		}
 
-		    if(munmap(free_memory,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem))) == -1){
-				fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
-				if(log) fclose(log);
-				return;
-			}
+		if(munmap(free_memory,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem))) == -1){
+			fprintf(_LOG_,"failed to unmap memory, %s:%d.\n",__FILE__,__LINE__-1);
+			if(log) fclose(log);
+			return;
+		}
 
-			if(memory_info){
-				uint32_t i;
-				for( i = 0; i < memory_info_size; i++){
-					if(memory_info[i]){
-						if(memory_info[i]->p)
-							munmap(memory_info[i]->p,memory_info[i]->size);
-						munmap(memory_info[i],sizeof **memory_info);
-					}
-				}
-				if(memory_info_size > (PAGE_SIZE / sizeof(struct Mem*))){
-					munmap(memory_info,(1 +(memory_info_size / (PAGE_SIZE /sizeof(struct Mem*)))) * PAGE_SIZE);
-				}else{
-					munmap(memory_info,PAGE_SIZE);
+		if(memory_info){
+			ui32 i;
+			for( i = 0; i < memory_info_size; i++){
+				if(memory_info[i]){
+					if(memory_info[i]->p)
+						munmap(memory_info[i]->p,memory_info[i]->size);
+					munmap(memory_info[i],sizeof **memory_info);
 				}
 			}
+			if(memory_info_size > (PAGE_SIZE / sizeof(struct Mem*))){
+				munmap(memory_info,(1 +(memory_info_size / (PAGE_SIZE /sizeof(struct Mem*)))) * PAGE_SIZE);
+			}else{
+				munmap(memory_info,PAGE_SIZE);
+			}
+		}
 #if defined(__linux__)
 		fprintf(_LOG_,"memory pool closed.\n");
 		if(log) fclose(log);
@@ -252,7 +262,7 @@ void close_prog_memory()
 }
 
 
-int create_memory(struct Mem *memory, uint64_t size, int type)
+int create_memory(struct Mem *memory, ui64 size, int type)
 {
 	if(!memory) return -1;
 
@@ -293,24 +303,21 @@ int create_memory(struct Mem *memory, uint64_t size, int type)
 }
 
 void clear_memory(){
-	if(!prog_mem && !arena.p) return;	
+	memset(&arenas,0,MAX_ARENAS * sizeof(struct Arena));
+	if(!prog_mem) return;	
 
-	if(arena.p){
-		memset(arena.p,0,arena.size);	
-	}else{
-		memset(prog_mem,0,MEM_SIZE);
-		if(free_memory)
-			memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
+	memset(prog_mem,0,MEM_SIZE);
+	if(free_memory)
+		memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof (struct Mem)));
 
-		last_addr = 0x0;
-		if(memory_info){
-			if(memory_info_size > (PAGE_SIZE / sizeof(struct Mem*))){
-				munmap(memory_info,(1 +(memory_info_size / (PAGE_SIZE /sizeof(struct Mem*)))) * PAGE_SIZE);
-			}else{
-				munmap(memory_info,PAGE_SIZE);
-			}
-			memory_info = 0x0;
+	last_addr = 0x0;
+	if(memory_info){
+		if(memory_info_size > (PAGE_SIZE / sizeof(struct Mem*))){
+			munmap(memory_info,(1 +(memory_info_size / (PAGE_SIZE /sizeof(struct Mem*)))) * PAGE_SIZE);
+		}else{
+			munmap(memory_info,PAGE_SIZE);
 		}
+		memory_info = 0x0;
 	}
 }
 
@@ -324,7 +331,7 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 
 	if(start){
 		if(memory_info){
-			uint32_t i;
+			ui32 i;
 			for(i = 0; i < memory_info_size; i++){
 				if(memory_info[i]){
 					if(memory_info[i]->p == start){
@@ -347,7 +354,7 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 
 	}else{
 		if(memory_info){
-			uint32_t i;
+			ui32 i;
 			for(i = 0; i < memory_info_size; i++){
 				if(memory_info[i]){
 					if(memory_info[i]->p == memory->p){
@@ -375,7 +382,7 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 	 * check if the all block is free
 	 * if its free, we zeroed out the free_memory data,
 	 * and the block iself,
-	 * this needs a carlfulw investigation, because it should not 
+	 * this needs a careful investigation, because it should not 
 	 * be neccessery
 	 * */
 
@@ -395,7 +402,7 @@ int push(struct Mem *memory,void* value,int type){
 			if(is_free((void*)memory->p,memory->size) == -1){
 				if((memory->size / sizeof(int)) > 1){
 					/*find the first empty memory slot*/
-					uint64_t i;
+					ui64 i;
 					for(i = 0; i < (memory->size / sizeof(int));i++){
 						if(*(int*)memory->p == 0) break;
 
@@ -412,7 +419,7 @@ int push(struct Mem *memory,void* value,int type){
 			if(is_free((void*)memory->p,memory->size) == -1){
 				if((memory->size / sizeof(char)) > 1){
 					/*find the first empty memory slot*/
-					uint64_t i;
+					ui64 i;
 					for(i = 0; i < (memory->size / sizeof(char));i++){
 						if(*(char*)memory->p == '\0') break;
 
@@ -429,7 +436,7 @@ int push(struct Mem *memory,void* value,int type){
 			if(is_free((void*)memory->p,memory->size) == -1){
 				if((memory->size / sizeof(long)) > 1){
 					/*find the first empty memory slot*/
-					uint64_t i;
+					ui64 i;
 					for(i = 0; i < (memory->size / sizeof(char));i++){
 						if(*(long*)memory->p == 0) break;
 
@@ -446,7 +453,7 @@ int push(struct Mem *memory,void* value,int type){
 			if(is_free((void*)memory->p,memory->size) == -1){
 				if((memory->size / sizeof(double)) > 1){
 					/*find the first empty memory slot*/
-					uint64_t i;
+					ui64 i;
 					for(i = 0; i < (memory->size / sizeof(char));i++){
 						if(*(double*)memory->p == 0.00) break;
 
@@ -463,7 +470,7 @@ int push(struct Mem *memory,void* value,int type){
 			if(is_free((void*)memory->p,memory->size) == -1){
 				if((memory->size / sizeof(double)) > 1){
 					/*find the first empty memory slot*/
-					uint64_t i;
+					ui64 i;
 					for(i = 0; i < (memory->size / sizeof(char));i++){
 						if(*(double*)memory->p == 0.00) break;
 
@@ -483,7 +490,7 @@ int push(struct Mem *memory,void* value,int type){
 	return 0;
 }
 
-void *value_at_index(uint64_t index,struct Mem *memory,int type)
+void *value_at_index(ui64 index,struct Mem *memory,int type)
 {
 	switch(type){
 		case INT:
@@ -508,15 +515,54 @@ void *value_at_index(uint64_t index,struct Mem *memory,int type)
 
 void *ask_mem(size_t size){
 	if(size <= 0) return 0x0;
-	if(!prog_mem && !arena.p) return 0x0;
+
+	i32 i;
+	ui8 null = 1;
+	for(i = 0;i < MAX_ARENAS;i++){
+		if(arenas[i].mem.p) continue;			
+
+		null = 0;
+		break;
+	}
+
+	if(!prog_mem && null) return 0x0;
 
 	if(prog_mem)
 		if(size > (MEM_SIZE - 1)) goto fall_back;
 
-	if(arena.p){
-		if((arena.size-1) < size) { 
-			/*here you may want to expand the memory*/
-			return 0x0;
+	for(i = 0;i < MAX_ARENAS; i++){ 
+		if(arenas[i].mem.p){
+			if((arenas[i].capacity-1) < size) continue; 
+
+			if(!last_addr_arena[i]){
+				fprintf(_LOG_,"first allocation of %ld bytes\n",size);
+				/*this is the first allocation*/
+				last_addr_arena[i] = (arenas[i].mem.p + size) - 1;
+				return (void*) arenas[i].mem.p;
+			}else{
+				/*look for space in the memory block*/
+				i8 *p = 0x0;
+				if(last_addr_arena[i]){
+					if((ui64)(last_addr_arena[i] - (i8*)arenas[i].mem.p) >= (arenas[i].capacity - 1)) return 0x0;
+					if((ui64)((last_addr_arena[i] + size) - (i8*)arenas[i].mem.p) >= (arenas[i].capacity - 1)) return 0x0;
+
+					p = last_addr_arena[i] + 1;
+				}else{
+					p = arenas[i].mem.p;
+				}
+
+				while(is_free((void*)p,size) == -1) {
+					if((ui64)((p + size) - (i8*)arenas[i].mem.p) > (arenas[i].mem.size -1)) {
+						return 0x0;
+					}
+					p += size;
+				}
+
+				/*here we know we have a big enough block*/
+				fprintf(_LOG_,"memory allocated at position %ld, for %ld bytes, in the arena.\n",(long)(p - (i8*)arenas[i].mem.p),size);
+				last_addr_arena[i] = (p + size) - 1;
+				return (void*) p;
+			}
 		}
 	}
 
@@ -543,15 +589,15 @@ void *ask_mem(size_t size){
 				if(free_memory[i].size > size){
 					fprintf(_LOG_,"using a pice of a block at positions %ld, of size %ld\n",i,size);
 					void *found = free_memory[i].p;
-					free_memory[i].p = (int8_t*)free_memory[i].p + size;
+					free_memory[i].p = (i8*)free_memory[i].p + size;
 					free_memory[i].size -= size;
-					memset(found,0,sizeof(int8_t)*size);/*should not be neccessery*/
+					memset(found,0,sizeof(i8)*size);/*should not be neccessery*/
 					return found;
 				}
 			}
 
 			/*look for space in the memory block*/
-			int8_t *p = 0x0;
+			i8 *p = 0x0;
 			if(last_addr){
 				if((last_addr - prog_mem) >= (MEM_SIZE-1)) goto fall_back;
 				if(((last_addr + size) - prog_mem) >= (MEM_SIZE-1)) goto fall_back;
@@ -575,44 +621,19 @@ void *ask_mem(size_t size){
 		}
 	}
 
-	if(arena.p){
-		if(!last_addr_arena){
-			fprintf(_LOG_,"first allocation of %ld bytes\n",size);
-			/*this is the first allocation*/
-			last_addr_arena = (arena.p + size) - 1;
-			return (void*) arena.p;
-		}else{
-			/*look for space in the memory block*/
-			int8_t *p = 0x0;
-			if(last_addr_arena){
-				if((uint64_t)(last_addr_arena - (int8_t*)arena.p) >= (arena.size - 1)) return 0x0;
-				if((uint64_t)((last_addr_arena + size) - (int8_t*)arena.p) >= (arena.size - 1)) return 0x0;
-
-				p = last_addr_arena + 1;
-			}else{
-				p = arena.p;
-			}
-
-			while(is_free((void*)p,size) == -1) {
-				if((uint64_t)((p + size) - (int8_t*)arena.p) > (arena.size -1)) {
-					return 0x0;
-				}
-				p += size;
-			}
-
-			/*here we know we have a big enough block*/
-			fprintf(_LOG_,"memory allocated at position %ld, for %ld bytes, in the arena.\n",(long)(p - (int8_t*)arena.p),size);
-			last_addr_arena = (p + size) - 1;
-			return (void*) p;
-		}
-	}
-
 
 fall_back:
 #if defined(__linux__)
 	fprintf(_LOG_,"using fall back system.\n");
 #endif
 #if defined(__linux__) || defined(__APPLE__)
+	/*make sure the size is conform to PAGE_SIZE !!*/
+	if(size < PAGE_SIZE) size = PAGE_SIZE;
+	if(size > PAGE_SIZE){ 
+		double mul = ((double)((double)size / PAGE_SIZE)) 
+		size = mul > 1.0 ? PAGE_SIZE * (int)(mul+1.0) : PAGE_SIZE;
+	}
+
 	void *p = mmap(0x0,size,PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
 
 	if(p == MAP_FAILED){
@@ -639,7 +660,7 @@ fall_back:
 		memory_info[0]->size = size;
 		memory_info_size++;
 	}else if (memory_info_size >= (PAGE_SIZE/sizeof(struct Mem*))){
-		uint32_t new_size = memory_info_size + 1;
+		ui32 new_size = memory_info_size + 1;
 		struct Mem **n_mi = 0x0;
 
 		if((double)memory_info_size / (PAGE_SIZE / sizeof(struct Mem*)) > 1.00){
@@ -656,8 +677,8 @@ fall_back:
 		memory_info_size = new_size;
 		memory_info = n_mi;
 		memory_info[memory_info_size - 1] = mmap(0x0,sizeof **memory_info,
-						PROT_READ | PROT_WRITE,
-						MAP_SHARED | MAP_ANONYMOUS,-1,0);
+				PROT_READ | PROT_WRITE,
+				MAP_SHARED | MAP_ANONYMOUS,-1,0);
 
 		if(memory_info[memory_info_size - 1] == MAP_FAILED){
 			fprintf(_LOG_,"memory allocation failed, %s:%d.\n",__FILE__,__LINE__-2);
@@ -667,8 +688,8 @@ fall_back:
 		memory_info[memory_info_size - 1]->size = size;
 		memory_info[memory_info_size - 1]->p = p;
 	}else{
-	
-		uint32_t i = 0;
+
+		ui32 i = 0;
 		while(i < memory_info_size && memory_info[i]) i++;
 
 		memory_info[i] = (struct Mem*) mmap(0x0,sizeof **memory_info,PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS,-1,0);
@@ -727,12 +748,12 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 {
 	if(memory_info){
 		/*check where is the memory from */
-		uint32_t i;
+		ui32 i;
 		for(i = 0; i < memory_info_size; i++){
 			if(memory_info[i]){
 
 				if(memory_info[i]->p == p){
-						
+
 					void *n_mem = mremap(memory_info[i]->p,memory_info[i]->size,size,MREMAP_MAYMOVE);
 					if(n_mem == MAP_FAILED) return 0x0;
 
@@ -752,7 +773,7 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 	if(size < old_size){
 
 		/*free the memory that is not needed anymore*/
-		void* p_to_left_mem = (int8_t*)p + size;
+		void* p_to_left_mem = (i8*)p + size;
 		if(return_mem(p_to_left_mem,old_size - size) == -1){
 			fprintf(_LOG_,"return_mem() failed. %s:%d.\n",__FILE__,__LINE__-1);
 			return 0x0;
@@ -768,7 +789,7 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 		remain = 1;
 	}
 
-	if((((int8_t*)p - prog_mem) + (remain == 1 ? remaining_size : size)) > MEM_SIZE){
+	if((((i8*)p - prog_mem) + (remain == 1 ? remaining_size : size)) > MEM_SIZE){
 		/*look for a new block*/
 		if(size > old_size){
 			void *new_block = ask_mem(size);
@@ -789,8 +810,8 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 	/* check if we can expand the memory in place, meaning
 	 * the requested new memory size is avaiabale adjason to the old memory location
 	 * if not we look for another block */
-	if(is_free(&((int8_t*)p)[old_size],(remain == 1 ? remaining_size : size)) == -1 || 
-			((last_addr -  prog_mem) > (&((int8_t*)p)[old_size] - prog_mem))){
+	if(is_free(&((i8*)p)[old_size],(remain == 1 ? remaining_size : size)) == -1 || 
+			((last_addr -  prog_mem) > (&((i8*)p)[old_size] - prog_mem))){
 		/*look for a new block*/
 		if(size > old_size){
 			void *new_block = ask_mem(size);
@@ -807,29 +828,29 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 		}
 	}
 
-	if((last_addr - prog_mem) > (((int8_t*)p + old_size + size) - prog_mem)){
+	if((last_addr - prog_mem) > (((i8*)p + old_size + size) - prog_mem)){
 		fprintf(_LOG_,"reask_mem expand memory in place from %ld, to %ld",old_size, size);	
 		return p;
 	}
 
-	last_addr = &prog_mem[(((int8_t*)p + old_size + size)- prog_mem) -1];
+	last_addr = &prog_mem[(((i8*)p + old_size + size)- prog_mem) -1];
 	return p;
 }
 
 static int return_mem(void *start, size_t size){
 	if(!start) return -1;
-	if(((int8_t *)start - prog_mem) < 0) return -1;
-	if(((int8_t *)start - prog_mem) > (MEM_SIZE -1)) return -1;
+	if(((i8 *)start - prog_mem) < 0) return -1;
+	if(((i8 *)start - prog_mem) > (MEM_SIZE -1)) return -1;
 
-	uint64_t s = (uint64_t)((int8_t *)start - prog_mem);
-	uint64_t i;
+	ui64 s = (ui64)((i8 *)start - prog_mem);
+	ui64 i;
 	for(i = 0; i < (PAGE_SIZE / sizeof(struct Mem)); i++){
 		if(free_memory[i].p){
 			continue;
 		}else{
 			free_memory[i].p = (void*)&prog_mem[s];
 			free_memory[i].size = size;
-			memset(&prog_mem[s],0,sizeof(int8_t)*size);
+			memset(&prog_mem[s],0,sizeof(i8)*size);
 			return 0;
 		}
 		/*
@@ -837,7 +858,7 @@ static int return_mem(void *start, size_t size){
 		 * but we 'free' the memory anyway.
 		 * */
 
-		memset(&prog_mem[s],0,sizeof(int8_t)*size);
+		memset(&prog_mem[s],0,sizeof(i8)*size);
 		return 0;
 	}
 
@@ -847,9 +868,9 @@ static int return_mem(void *start, size_t size){
 
 static int is_free(void *mem, size_t size){
 	if(size == MEM_SIZE-1){
-		uint32_t i;
+		ui32 i;
 		for(i = 0;i < MEM_SIZE;i++)
-			if(((int8_t*)prog_mem)[i] != '\000') return -1;
+			if(((i8*)prog_mem)[i] != '\000') return -1;
 
 		return 0;
 	}
@@ -892,7 +913,7 @@ static int resize_memory_info()
 	}	
 
 	/*move the 0x0 pointers at the end*/
-	uint32_t i,j;
+	ui32 i,j;
 	for(i = 0,j = 1; i < memory_info_size;i++,j++){
 		if(memory_info_size - i > 1){
 			if(memory_info[i] == 0x0 && memory_info[j] != 0x0){
@@ -904,7 +925,7 @@ static int resize_memory_info()
 		break;
 	}
 
-	uint32_t new_size = memory_info_size - 1;
+	ui32 new_size = memory_info_size - 1;
 	struct Mem **n_mi = 0x0;
 
 	if(memory_info_size / (PAGE_SIZE / sizeof(struct Mem*)) == 
@@ -915,7 +936,7 @@ static int resize_memory_info()
 		long old_size = (memory_info_size / (PAGE_SIZE /sizeof(struct Mem*)) + 1) * PAGE_SIZE;
 		n_mi = (struct Mem**) mremap(memory_info,old_size,old_size - PAGE_SIZE, MREMAP_MAYMOVE);
 	}
-	
+
 	if(n_mi == MAP_FAILED){
 		fprintf(_LOG_,"resizing memory_info array failed, %s:%d.\n",__FILE__,__LINE__-2);
 		return -1;

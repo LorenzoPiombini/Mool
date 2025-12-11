@@ -7,56 +7,9 @@ struct Mytype{
 	char str[5];
 };
 
-int use_arena(char *str,struct arena a){
-	str = (char*) &(((char*)a.p)[a.bwritten]);
-
-	strncpy(str,"when i was younger so much younger than today",strlen("when i wad younger so much younger than today")+1);
-
-	printf("%s\n",str);
-	str = NULL;
-	clear_memory();
-	return 0;
-}
 
 int main(void)
 {
-	/*using arena*/
-	
-	if(create_arena(500) == -1) return -1 ;
-	struct arena ar;
-
-	ar.p = get_arena(NULL);
-	ar.size = 500;
-	ar.bwritten = 0;
-	
-	if(!ar.p) return -1;
-	
-	char *help = NULL;
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-	use_arena(help,ar);
-/*if you forget to close the memory arena, the OS will do it for you, avoiding memory leaks*/
-	/*return 0;*/
-	close_arena();
-
 	init_prog_memory();
 	
 	struct Mem my_type;
@@ -101,7 +54,7 @@ int main(void)
 	push(&number_array,(void *)&a,INT);
 	push(&number_array,(void *)&b,INT);
 
-	uint64_t i;
+	ui64 i;
 	for(i = 0; i < (number_array.size / (sizeof(int))); i++)
 #if __APPLE__
 		printf("integer at index %llu:%d\n",i,*(int*)value_at_index(i,&number_array,INT));

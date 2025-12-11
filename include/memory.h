@@ -8,7 +8,7 @@
 #define ONE_Mib (1024 * 1000)
 #define FIVE_H_Kib (1024 * 500)
 #define EIGTH_Kib (1024 * 8)
-#define ONE_Kib (1024 * 2)
+#define TWO_Kib (1024 * 2)
 #define SMEM_EXIST 2
 #define SMEM_NOENT 3
 
@@ -17,10 +17,10 @@ struct Mem{
 	size_t size;
 };/*16 bytes*/
 
-struct arena{
-	void *p;
-	uint64_t size;
-	uint64_t bwritten;
+
+struct Arena{
+	struct Mem mem;
+	ui64 capacity;
 };
 
 enum types{
@@ -33,21 +33,19 @@ enum types{
 
 /* API endpoints */
 void *get_arena(size_t *size);
-int is_inside_arena(size_t size,struct arena a);
 void clear_memory();
 int create_shared_memory(size_t size);
 int read_from_shared_memory();
-//int write_to_shared_memory(pid_t pid, void* value);
 void close_shared_memory();
-int create_memory(struct Mem *memory, uint64_t size, int type);
-int cancel_memory(struct Mem *memory,void *start,size_t size);
+int create_memory(struct Mem *memory, ui64 size, int type);
+int cancel_memory(struct Mem *memory, void *start,size_t size);
 int expand_memory(struct Mem *memory, size_t size,int type);
 int create_arena(size_t size);
 int init_prog_memory();
 void close_prog_memory();
 int close_arena();
 int push(struct Mem *memory,void* value,int type);
-void *value_at_index(uint64_t index,struct Mem *memory,int type);
+void *value_at_index(ui64 index,struct Mem *memory,int type);
 
 void *ask_mem(size_t size);
 void *reask_mem(void *p,size_t old_size,size_t size);
