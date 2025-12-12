@@ -38,6 +38,11 @@ static int resize_memory_info();
 static int return_mem(void *start,size_t size);
 
 
+i8 *is_memory_allocated()
+{
+	i8 *p = prog_mem;
+	return p;
+}
 
 int create_arena(size_t size){
 #if defined(__linux__)
@@ -543,8 +548,8 @@ void *ask_mem(size_t size){
 				/*look for space in the memory block*/
 				i8 *p = 0x0;
 				if(last_addr_arena[i]){
-					if((ui64)(last_addr_arena[i] - (i8*)arenas[i].mem.p) >= (arenas[i].capacity - 1)) return 0x0;
-					if((ui64)((last_addr_arena[i] + size) - (i8*)arenas[i].mem.p) >= (arenas[i].capacity - 1)) return 0x0;
+					if((ui64)(last_addr_arena[i] - (i8*)arenas[i].mem.p) >= (arenas[i].capacity - 1)) goto fall_back;
+					if((ui64)((last_addr_arena[i] + size) - (i8*)arenas[i].mem.p) >= (arenas[i].capacity - 1)) goto fall_back;
 
 					p = last_addr_arena[i] + 1;
 				}else{
@@ -553,7 +558,7 @@ void *ask_mem(size_t size){
 
 				while(is_free((void*)p,size) == -1) {
 					if((ui64)((p + size) - (i8*)arenas[i].mem.p) > (arenas[i].mem.size -1)) {
-						return 0x0;
+						goto fall_back;
 					}
 					p += size;
 				}
@@ -630,7 +635,7 @@ fall_back:
 	/*make sure the size is conform to PAGE_SIZE !!*/
 	if(size < PAGE_SIZE) size = PAGE_SIZE;
 	if(size > PAGE_SIZE){ 
-		double mul = ((double)((double)size / PAGE_SIZE)) 
+		double mul = ((double)((double)size / PAGE_SIZE));
 		size = mul > 1.0 ? PAGE_SIZE * (int)(mul+1.0) : PAGE_SIZE;
 	}
 

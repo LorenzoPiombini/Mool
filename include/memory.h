@@ -32,6 +32,7 @@ enum types{
 };
 
 /* API endpoints */
+i8 *is_memory_allocated();
 void *get_arena(size_t *size);
 void clear_memory();
 int create_shared_memory(size_t size);
