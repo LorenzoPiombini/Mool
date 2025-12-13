@@ -41,6 +41,7 @@ static int return_mem(void *start,size_t size);
 i8 *is_memory_allocated()
 {
 	i8 *p = prog_mem;
+	if(!p) p = arenas[0].mem.p;
 	return p;
 }
 
@@ -144,6 +145,22 @@ int close_arena(){
 	}
 
 	memset(&arenas,0,MAX_ARENAS * sizeof(struct Arena));
+	if(memory_info){
+			ui32 i;
+			for( i = 0; i < memory_info_size; i++){
+				if(memory_info[i]){
+					if(memory_info[i]->p)
+						munmap(memory_info[i]->p,memory_info[i]->size);
+					munmap(memory_info[i],sizeof **memory_info);
+				}
+			}
+			if(memory_info_size > (PAGE_SIZE / sizeof(struct Mem*))){
+				munmap(memory_info,(1 +(memory_info_size / (PAGE_SIZE /sizeof(struct Mem*)))) * PAGE_SIZE);
+			}else{
+				munmap(memory_info,PAGE_SIZE);
+			}
+	}
+
 #elif defined(_WIN32)
 	/*windows code*/
 #endif
