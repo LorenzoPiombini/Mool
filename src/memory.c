@@ -349,71 +349,77 @@ int cancel_memory(struct Mem *memory,void *start,size_t size){
 	if(memory)
 		if(!memory->p && !start) return -1;
 
-	if(size <= 0 && start) return -1;
+	if(size == 0 && start) return -1;
 
-	if(start){
-		if(memory_info){
-			ui32 i;
-			for(i = 0; i < memory_info_size; i++){
-				if(memory_info[i]){
-					if(memory_info[i]->p == start){
-						munmap(memory_info[i]->p,memory_info[i]->size);	
-						memory_info[i]->p = 0x0;
-						munmap(memory_info[i],sizeof **memory_info);
-						memory_info[i] = 0x0;
-						if(resize_memory_info() == -1) return -1;
+	if(prog_mem){
+		if(start){
+			if(memory_info){
+				ui32 i;
+				for(i = 0; i < memory_info_size; i++){
+					if(memory_info[i]){
+						if(memory_info[i]->p == start){
+							munmap(memory_info[i]->p,memory_info[i]->size);	
+							memory_info[i]->p = 0x0;
+							munmap(memory_info[i],sizeof **memory_info);
+							memory_info[i] = 0x0;
+							if(resize_memory_info() == -1) return -1;
 
-						fprintf(_LOG_,"freed %ld bytes from fall back system\n",size);
-						return 0;
-					}	
+							fprintf(_LOG_,"freed %ld bytes from fall back system\n",size);
+							return 0;
+						}	
+					}
 				}
-			}
-		}	
+			}	
 
 
-		if(return_mem(start,size) == -1) return -1;
-		fprintf(_LOG_,"'freed' %ld bytes of memory in the pool\n",size);
+			if(return_mem(start,size) == -1) return -1;
+			fprintf(_LOG_,"'freed' %ld bytes of memory in the pool\n",size);
 
-	}else{
-		if(memory_info){
-			ui32 i;
-			for(i = 0; i < memory_info_size; i++){
-				if(memory_info[i]){
-					if(memory_info[i]->p == memory->p){
-						munmap(memory->p,memory->size);	
-						munmap(memory_info[i],sizeof **memory_info);
-						memory_info[i] = 0x0;
-						if(resize_memory_info() == -1) return -1;
+		}else{
+			if(memory_info){
+				ui32 i;
+				for(i = 0; i < memory_info_size; i++){
+					if(memory_info[i]){
+						if(memory_info[i]->p == memory->p){
+							munmap(memory->p,memory->size);	
+							munmap(memory_info[i],sizeof **memory_info);
+							memory_info[i] = 0x0;
+							if(resize_memory_info() == -1) return -1;
 
-						fprintf(_LOG_,"freed %ld bytes from fall back system\n",memory->size);
-						return 0;
-					}	
+							fprintf(_LOG_,"freed %ld bytes from fall back system\n",memory->size);
+							return 0;
+						}	
+					}
 				}
-			}
-		}	
+			}	
 
 
-		if(memory->size == 0 || memory->size >= MEM_SIZE) return -1;
+			if(memory->size == 0 || memory->size >= MEM_SIZE) return -1;
 
-		if(return_mem(memory->p,memory->size) == -1) return -1;
+			if(return_mem(memory->p,memory->size) == -1) return -1;
 
-		fprintf(_LOG_,"freed %ld bytes from fall back system\n",memory->size);
+			fprintf(_LOG_,"freed %ld bytes from fall back system\n",memory->size);
+		}
+
+		/* 
+		 * check if the all block is free
+		 * if its free, we zeroed out the free_memory data,
+		 * and the block iself,
+		 * this needs a careful investigation, because it should not 
+		 * be neccessery
+		 * */
+
+		if(is_free(prog_mem,MEM_SIZE-1) == 0){
+			memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));	
+			memset(prog_mem,0,MEM_SIZE);
+			last_addr = 0x0;
+			fprintf(_LOG_,"freed all memory\n");
+		}
+		return 0;
 	}
-
-	/* 
-	 * check if the all block is free
-	 * if its free, we zeroed out the free_memory data,
-	 * and the block iself,
-	 * this needs a careful investigation, because it should not 
-	 * be neccessery
-	 * */
-
-	if(is_free(prog_mem,MEM_SIZE-1) == 0){
-		memset(free_memory,0,sizeof(struct Mem) * (PAGE_SIZE / sizeof(struct Mem)));	
-		memset(prog_mem,0,MEM_SIZE);
-		last_addr = 0x0;
-		fprintf(_LOG_,"freed all memory\n");
-	}
+	
+	/*check if the memory is in one of the arenas*/
+	if(return_mem(start,size) == -1) return -1;
 	return 0;
 }
 
@@ -585,6 +591,9 @@ void *ask_mem(size_t size){
 				last_addr_arena[i] = (p + size) - 1;
 				return (void*) p;
 			}
+		}else{
+			/*TODO: we might want to allocate a new arena!*/
+
 		}
 	}
 
@@ -768,6 +777,111 @@ int expand_memory(struct Mem *memory, size_t size,int type){
 
 void *reask_mem(void *p,size_t old_size,size_t size)
 {
+	if(!prog_mem){
+		if(memory_info){
+			/*check where is the memory from */
+			ui32 i;
+			for(i = 0; i < memory_info_size; i++){
+				if(memory_info[i]){
+
+					if(memory_info[i]->p == p){
+
+						void *n_mem = mremap(memory_info[i]->p,memory_info[i]->size,size,MREMAP_MAYMOVE);
+						if(n_mem == MAP_FAILED) return 0x0;
+
+						memory_info[i]->size = size;
+						memory_info[i]->p = n_mem;
+
+						fprintf(_LOG_,"reask_mem() performed a remap on the fall_back system,"\
+								"pointer remapped ocated %p, new size = %ld\n",
+								(void*)memory_info[i]->p,size);
+
+						return memory_info[i]->p;
+					}
+				}
+			}
+		}
+
+
+		/*check if we have arenas*/
+		int i;
+		for(i = 0; i < MAX_ARENAS; i++){
+			if(arenas[i].mem.p){
+				/*realloc in the areana*/
+				/*if the pointer does not belong to this arena, continue*/
+				if(!((i8*)p >= (i8*)arenas[i].mem.p && 
+							(int)(((i8*)p + size) - (i8*)arenas[i].mem.p) < (int)arenas[i].capacity)) continue; 
+
+				if(size < old_size){
+				/*free the memory that is not needed anymore*/
+					void* p_to_left_mem = (i8*)p + size;
+					if(return_mem(p_to_left_mem,old_size - size) == -1){
+						fprintf(_LOG_,"return_mem() failed. %s:%d.\n",__FILE__,__LINE__-1);
+						return 0x0;
+					}
+					fprintf(_LOG_,"memory resized to %ld, from %ld, in the arena.\n",old_size,size);
+					return p;
+				}
+
+				size_t remaining_size = 0;
+				int remain = 0;
+				if(size > old_size){
+					remaining_size = size - old_size;
+					remain = 1;
+				}
+
+				if((((i8*)p - (i8*)arenas[i].mem.p) + (remain == 1 ? remaining_size : size)) > arenas[i].capacity){
+					
+					/*look for an empty areana*/
+					if(size > old_size){
+						void *new_block = ask_mem(size);
+						if(!new_block) return 0x0;
+
+						/*cpy memory from oldblock to new and free the old*/
+						memcpy(new_block,p,old_size);
+						if(return_mem(p,old_size) == -1){
+							return_mem(new_block,old_size+size);
+							return 0x0;
+						}
+
+						return new_block;
+					}
+					/*TODO add case size < old_size*/
+				}
+
+				/* check if we can expand the memory in place, meaning
+				 * the requested new memory size is avaiabale adjason to the old memory location
+				 * if not we look for another block */
+				if(is_free(&((i8*)p)[old_size],(remain == 1 ? remaining_size : size)) == -1 || 
+						((last_addr_arena[i] -  (i8*)arenas[i].mem.p) > (&((i8*)p)[old_size] - (i8*)arenas[i].mem.p))){
+					/*look for a new block*/
+					if(size > old_size){
+						void *new_block = ask_mem(size);
+						if(!new_block) return 0x0;
+
+						/*cpy memory from oldblock to new and free the old*/
+						memcpy(new_block,p,old_size);
+						if(return_mem(p,old_size) == -1){
+							return_mem(new_block,old_size+size);
+							return 0x0;
+						}
+
+						return new_block;
+					}
+				}
+
+				if((last_addr_arena[i] - (i8*)arenas[i].mem.p) > (((i8*)p + old_size + size) - (i8*)arenas[i].mem.p)){
+					fprintf(_LOG_,"reask_mem expand memory in place from %ld, to %ld",old_size, size);	
+					return p;
+				}
+
+				last_addr_arena[i] = &((i8*)arenas[i].mem.p)[(((i8*)p + old_size + size)- (i8*)arenas[i].mem.p) -1];
+				return p;
+			}	
+		}
+		return 0x0;	
+	}
+
 	if(memory_info){
 		/*check where is the memory from */
 		ui32 i;
@@ -861,27 +975,48 @@ void *reask_mem(void *p,size_t old_size,size_t size)
 
 static int return_mem(void *start, size_t size){
 	if(!start) return -1;
-	if(((i8 *)start - prog_mem) < 0) return -1;
-	if(((i8 *)start - prog_mem) > (MEM_SIZE -1)) return -1;
+	if(prog_mem){
+		if(((i8 *)start - prog_mem) < 0) return -1;
+		if(((i8 *)start - prog_mem) > (MEM_SIZE -1)) return -1;
 
-	ui64 s = (ui64)((i8 *)start - prog_mem);
-	ui64 i;
-	for(i = 0; i < (PAGE_SIZE / sizeof(struct Mem)); i++){
-		if(free_memory[i].p){
-			continue;
-		}else{
-			free_memory[i].p = (void*)&prog_mem[s];
-			free_memory[i].size = size;
+		ui64 s = (ui64)((i8 *)start - prog_mem);
+		ui64 i;
+		for(i = 0; i < (PAGE_SIZE / sizeof(struct Mem)); i++){
+			if(free_memory[i].p){
+				continue;
+			}else{
+				free_memory[i].p = (void*)&prog_mem[s];
+				free_memory[i].size = size;
+				memset(&prog_mem[s],0,sizeof(i8)*size);
+				return 0;
+			}
+			/*
+			 * in this case we do not have space to register the free block
+			 * but we 'free' the memory anyway.
+			 * */
+
 			memset(&prog_mem[s],0,sizeof(i8)*size);
 			return 0;
 		}
-		/*
-		 * in this case we do not have space to register the free block
-		 * but we 'free' the memory anyway.
-		 * */
 
-		memset(&prog_mem[s],0,sizeof(i8)*size);
-		return 0;
+
+	}else if (arenas[0].mem.p){
+		int i;
+		for(i = 0; i < MAX_ARENAS; i++){
+			if(!arenas[i].mem.p) continue;
+			/*if the pointer does not belong to this arena continue*/
+			if(!((i8*)start >= (i8*)arenas[i].mem.p && 
+					(int)(((i8*)start + size) - (i8*)arenas[i].mem.p) < (int)arenas[i].capacity)) continue;
+
+			if((int)((i8 *)start - (i8*)arenas[i].mem.p) < 0) return -1;
+			if((int)((i8 *)start - (i8*)arenas[i].mem.p) > ((int)arenas[0].capacity - 1)) return -1;
+			if(((int)arenas[i].mem.size - (int)size) < (int)0) return -1;
+
+
+			ui64 s = (ui64)((i8 *)start - (i8*)arenas[i].mem.p);	
+			memset(&((i8*)arenas[i].mem.p)[s],0,sizeof(i8)*size);
+			arenas[i].mem.size -= size;
+		}
 	}
 
 	return 0;
@@ -889,12 +1024,14 @@ static int return_mem(void *start, size_t size){
 
 
 static int is_free(void *mem, size_t size){
-	if(size == MEM_SIZE-1){
-		ui32 i;
-		for(i = 0;i < MEM_SIZE;i++)
-			if(((i8*)prog_mem)[i] != '\000') return -1;
+	if(prog_mem){
+		if(size == MEM_SIZE-1){
+			ui32 i;
+			for(i = 0;i < MEM_SIZE;i++)
+				if(((i8*)prog_mem)[i] != '\000') return -1;
 
-		return 0;
+			return 0;
+		}
 	}
 
 	char cbuf[size+1];
