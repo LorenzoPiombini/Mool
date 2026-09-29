@@ -25,5 +25,7 @@ struct Memzone_t{
 int A_init_mainzone(void);
 void *A_Malloc(int size, int tag, void *user);
 void A_free(void *m);
+void A_clear_zone(struct Memzone_t *zone);
+void A_change_tag(void *ptr,int tag);
 
 #endif

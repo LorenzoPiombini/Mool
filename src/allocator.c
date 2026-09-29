@@ -94,7 +94,7 @@ void *A_Malloc(int size, int tag, void *user)
 	
 	if(user){
 		base->user = user;
-		*(void**)user = (void*)(base + sizeof*base);
+		*(void**)user = (void*)(base + sizeof *base);
 	}else{
 		base->user = (void*)2;
 	}
@@ -115,6 +115,9 @@ void A_free(void *m)
 	block = (struct Memblock_s *)((uint8_t 	*)m - sizeof *block);
 	if(block->id != M_ZONE_ID) return ;
 	
+	/*clear memory*/
+	memset(m + sizeof *block,0,block->size - sizeof *block);
+
 	if(block->user > (void**)0x100) *block->user = 0;
 	
 	block->user = NULL;
@@ -142,8 +145,36 @@ void A_free(void *m)
 		
 		if(other == mainzone->rover);
 			mainzone->rover = block;
-
 	}
-	
+}
 
+void A_change_tag(void *ptr,int tag)
+{
+	struct Memblock_s *block;
+	
+	block = (struct Memblock_s *)((uint8_t)ptr + sizeof *block);
+
+	if(block->id != M_ZONE_ID) return;
+
+	if(tag >= M_PURGELEVEL && block->user < (void**) 0x100) return;
+
+	block->tag = tag;
+}
+
+void A_clear_zone(struct Memzone_t *zone)
+{
+	struct Memblock_s *block;		
+
+	mainzone->blocklist->prev = 
+	mainzone->blocklist->next = 
+	block =(struct Memblock_s *) ((uint8_t *) zone + sizeof *zone);
+	
+	zone->blocklist.user = (void*)zone;
+	zone->blocklist.tag = M_STATIC;
+	zone->rover	= block;
+	
+	block.prev = block.next = &zone->blocklist;
+
+	block.user = NULL;
+	block.size = zone->size - sizeof *zone;
 }
