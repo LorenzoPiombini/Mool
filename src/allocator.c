@@ -3,7 +3,7 @@
 #include <string.h>
 #include "allocator.h"
 
-#define M_ZONE_ID 0xFF453210
+#define M_ZONE_ID 0x0F453210
 int mb_used = 8;
 
 
@@ -46,7 +46,7 @@ void *A_Malloc(int size, int tag, void *user)
 	struct Memblock_s *base;
 
 	/*allign the size to 4*/
-	size = (size + 3) & ~3;
+	size = (size + 7) & ~7;
 
 	size += sizeof *newblock;
 
@@ -143,7 +143,7 @@ void A_free(void *m)
 		block->next = other->next;
 		block->next->prev = block;
 		
-		if(other == mainzone->rover);
+		if(other == mainzone->rover)
 			mainzone->rover = block;
 	}
 }
@@ -152,7 +152,7 @@ void A_change_tag(void *ptr,int tag)
 {
 	struct Memblock_s *block;
 	
-	block = (struct Memblock_s *)((uint8_t)ptr + sizeof *block);
+	block = (struct Memblock_s *)((uint8_t*)ptr + sizeof *block);
 
 	if(block->id != M_ZONE_ID) return;
 
@@ -165,16 +165,16 @@ void A_clear_zone(struct Memzone_t *zone)
 {
 	struct Memblock_s *block;		
 
-	mainzone->blocklist->prev = 
-	mainzone->blocklist->next = 
+	mainzone->blocklist.prev = 
+	mainzone->blocklist.next = 
 	block =(struct Memblock_s *) ((uint8_t *) zone + sizeof *zone);
 	
 	zone->blocklist.user = (void*)zone;
 	zone->blocklist.tag = M_STATIC;
 	zone->rover	= block;
 	
-	block.prev = block.next = &zone->blocklist;
+	block->prev = block->next = &zone->blocklist;
 
-	block.user = NULL;
-	block.size = zone->size - sizeof *zone;
+	block->user = NULL;
+	block->size = zone->size - sizeof *zone;
 }
