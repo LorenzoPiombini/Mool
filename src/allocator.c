@@ -109,7 +109,7 @@ void *A_Malloc(int size, int tag, void *user)
 	base->id = M_ZONE_ID;
 
 	mainzone->rover = base->next;
-	return (void *)(base + sizeof *base);
+	return (void *)((uint8_t*)base + sizeof *base);
 }
 
 void A_free(void *m)
@@ -122,7 +122,7 @@ void A_free(void *m)
 	if(block->id != M_ZONE_ID) return ;
 	
 	/*clear memory*/
-	memset(m + sizeof *block,0,block->size - sizeof *block);
+	memset(m,0,block->size - sizeof *block);
 
 	if(block->user > (void**)0x100) *block->user = 0;
 	
@@ -158,7 +158,7 @@ void A_change_tag(void *ptr,int tag)
 {
 	struct Memblock_s *block;
 	
-	block = (struct Memblock_s *)((uint8_t*)ptr + sizeof *block);
+	block = (struct Memblock_s *)((uint8_t*)ptr - sizeof *block);
 
 	if(block->id != M_ZONE_ID) return;
 
