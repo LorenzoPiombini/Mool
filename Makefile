@@ -29,12 +29,12 @@ library:
 
 
 $(TARGET): $(OBJ)
-	gcc -o $@ $? -llog -fpie -pie -z relro -z now -z noexecstack -fsanitize=address
+	gcc -o $@ $? -fpie -pie -z relro -z now -z noexecstack -fsanitize=undefined
 
 
 
 obj/%.o : src/%.c
-	gcc  -Wall -Wextra -Walloca -Warray-bounds -Wnull-dereference -g3 -c $< -o $@ -Iinclude -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -fsanitize=address
+	gcc  -Wall -Wextra -Walloca -Warray-bounds -Wnull-dereference -g3 -c $< -o $@ -Iinclude -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -fsanitize=undefined
 
 
 install: default library
