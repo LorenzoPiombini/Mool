@@ -3,6 +3,12 @@
 #include <string.h>
 #include "allocator.h"
 
+#if defined(__x86_64__) || defined(_M_X64)
+#	define ALIGN  8
+#elif defined(__i386__) || defined(_M_IX86)
+#	define ALIGN  4
+#endif
+
 #define M_ZONE_ID 0x0F453210
 int mb_used = 8;
 
@@ -46,7 +52,7 @@ void *A_Malloc(int size, int tag, void *user)
 	struct Memblock_s *base;
 
 	/*allign the size to 4*/
-	size = (size + 7) & ~7;
+	size = (size + ALIGN -1) & ~(ALIGN -1);
 
 	size += sizeof *newblock;
 
