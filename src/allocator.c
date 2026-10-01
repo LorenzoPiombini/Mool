@@ -155,7 +155,7 @@ void A_free(void *m)
 }
 void *A_Realloc(void *ptr,int size, int tag, void *user)
 {
-	size = (size + (ALIGN -1) & ~(ALIGN-1));
+	size = (size + (ALIGN -1)) & ~(ALIGN-1);
 	struct Memblock_s *block = (struct Memblock_s *)((uint8_t*)ptr - sizeof *block);
 	if((block->size - (int)sizeof *block) >= size) return NULL;
 	
