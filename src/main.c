@@ -12,12 +12,10 @@ int main(void)
 	printf("%*s\n",12,s);
 
 
-	A_free(s);
+	s = A_Realloc(s,20,M_STATIC,NULL);
+	if (!s) return 0;
 
-	s = A_Malloc(12,M_STATIC,NULL);
-	strncpy(s,"Mool is Fool",12);
-	printf("%*s\n",12,s);
-	
-
+	strncpy(&s[12],"!!!!",4);
+	printf("%*s\n",16,s);
 	return 0;
 }

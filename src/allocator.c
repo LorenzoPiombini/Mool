@@ -153,7 +153,20 @@ void A_free(void *m)
 			mainzone->rover = block;
 	}
 }
+void *A_Realloc(void *ptr,int size, int tag, void *user)
+{
+	size = (size + (ALIGN -1) & ~(ALIGN-1));
+	struct Memblock_s *block = (struct Memblock_s *)((uint8_t*)ptr - sizeof *block);
+	if((block->size - (int)sizeof *block) >= size) return NULL;
+	
+	void *m = (uint8_t*)A_Malloc(size,tag,user) + sizeof *block;	
+	if(!m) return NULL;
 
+	memcpy(m,ptr,block->size - sizeof *block);
+		
+	A_free(ptr);
+	return m; 
+}
 void A_change_tag(void *ptr,int tag)
 {
 	struct Memblock_s *block;
