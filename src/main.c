@@ -17,5 +17,6 @@ int main(void)
 
 	strncpy(&s[12],"!!!!",4);
 	printf("%*s\n",16,s);
+	A_close_mainzone();
 	return 0;
 }
