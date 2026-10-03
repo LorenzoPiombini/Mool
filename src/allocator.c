@@ -109,7 +109,7 @@ void *A_Malloc(int size, int tag, void *user)
 	
 	if(user){
 		base->user = user;
-		*(void**)user = (void*)(base + sizeof *base);
+		*(void**)user = (void*)((uint8_t*)base + sizeof *base);
 	}else{
 		base->user = zone_used;
 	}
@@ -124,14 +124,14 @@ void *A_Malloc(int size, int tag, void *user)
 void A_free(void *m)
 {
 
+	if(!m) return;
 	struct Memblock_s *block;
 	struct Memblock_s *other;
 
 	block = (struct Memblock_s *)((uint8_t 	*)m - sizeof *block);
-	if(block->id != M_ZONE_ID) return ;
+	if(block->id != M_ZONE_ID) exit(0);
+
 	
-	/*clear memory*/
-	memset(m,0,block->size - sizeof *block);
 
 	if(block->user != zone_used) *block->user = NULL;
 	
@@ -161,6 +161,13 @@ void A_free(void *m)
 		if(other == mainzone->rover)
 			mainzone->rover = block;
 	}
+
+	/*
+		clear memory
+		it is important to clear memory after the merging so we clean
+		all absorbed stale headers block
+	*/
+	memset((uint8_t*)block + sizeof *block,0,block->size - sizeof *block);
 }
 void *A_Realloc(void *ptr,int size, int tag, void *user)
 {
@@ -168,7 +175,7 @@ void *A_Realloc(void *ptr,int size, int tag, void *user)
 	struct Memblock_s *block = (struct Memblock_s *)((uint8_t*)ptr - sizeof *block);
 	if((block->size - (int)sizeof *block) >= size) return NULL;
 	
-	void *m = (uint8_t*)A_Malloc(size,tag,user) + sizeof *block;	
+	void *m = A_Malloc(size,tag,user);
 	if(!m) return NULL;
 
 	memcpy(m,ptr,block->size - sizeof *block);
